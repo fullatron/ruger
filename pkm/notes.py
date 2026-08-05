@@ -26,12 +26,20 @@ class NoteError(Exception):
 
 
 def slugify(text: str, fallback: str = "note") -> str:
-    """Filesystem-safe stem. Strict allowlist — this becomes a path."""
-    text = unicodedata.normalize("NFKD", text or "")
-    text = text.encode("ascii", "ignore").decode("ascii").lower()
-    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
-    text = re.sub(r"-{2,}", "-", text)
-    return (text[:60].strip("-") or fallback)
+    """Filesystem-safe stem, in the title's own script.
+
+    The old version encoded to ASCII and dropped what did not survive, so every
+    non-Latin title became the bare fallback — and two Hindi meetings on one day
+    collided on a single filename. Letters and marks are kept; separators, dots
+    and control characters are not, which is the part that made it safe.
+    """
+    text = unicodedata.normalize("NFC", text or "").lower()
+    kept = "".join(
+        ch if (ch.isalnum() or unicodedata.category(ch).startswith("M")) else "-"
+        for ch in text
+    )
+    kept = re.sub(r"-{2,}", "-", kept).strip("-")
+    return (kept[:60].strip("-") or fallback)
 
 
 def _unique_path(root: Path, stem: str) -> Path:

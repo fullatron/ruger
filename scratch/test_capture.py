@@ -115,9 +115,16 @@ def main() -> None:
     print("\nthe file is written verbatim, which §5 depends on:")
     path = capture.write_note(TEXT, when=WHEN, inbox=TMP / "inbox")
     text = path.read_text(encoding="utf-8")
-    check("named by date and time", path.name, "2026-08-05-capture-20260805-143210.md")
+    # Microseconds, not seconds: two captures inside one second used to write to
+    # ONE filename with ONE id, and the second silently replaced the first.
+    check("named by date and time",
+          path.name.startswith("2026-08-05-capture-20260805-143210-"), True)
     check("marked as a capture", "kind: capture" in text, True)
-    check("carries a stable id", "id: capture-20260805-143210" in text, True)
+    check("carries a stable id", "id: capture-20260805-143210-" in text, True)
+
+    second = capture.write_note(TEXT, when=WHEN, inbox=TMP / "inbox")
+    check("a second capture in the same instant gets its own file",
+          second.name != path.name, True)
     check("body is exactly what was said", text.endswith(TEXT + "\n"), True)
 
     print("\n  and `kind` survives the trip through ingest:")
@@ -131,10 +138,10 @@ def main() -> None:
 
         print("\n  so the capture prompt and the lower floor are selected:")
         check("prompt", extract.prompt_for(row).name, "extract_capture.md")
-        check("floor", extract.quote_floor(row), (2, 6))
+        check("floor", extract.quote_floor(row), (2, 6, 3))
 
     print("\nthe lowered floor is a threshold, not an exemption:")
-    short = "book the trade"        # 3 words, 14 chars: under the meeting floor
+    short = "trade show"           # 2 words, 10 chars: under the meeting floor
     check("a meeting would reject it",
           extract.verify_quote(short, TEXT), (False, "too_short"))
     check("a capture accepts it",
@@ -155,10 +162,10 @@ def main() -> None:
     print("\n  a meeting is untouched by any of it:")
     meeting = {"transcript": TEXT, "started_at": "2026-08-05", "kind": "meeting"}
     check("prompt", extract.prompt_for(meeting).name, "extract_commitments.md")
-    check("floor", extract.quote_floor(meeting), (4, 15))
+    check("floor", extract.quote_floor(meeting), (3, 12, 5))
     check("and an episode with no kind at all defaults to a meeting",
           extract.quote_floor({"transcript": "x", "started_at": "2026-08-05"}),
-          (4, 15))
+          (3, 12, 5))
 
     print("\ncapture end to end, without Notion:")
     fresh = Path(TMP / "inbox2")

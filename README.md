@@ -167,6 +167,10 @@ merges into one task with a `2×` count, keeping both quotes. Similar wording is
 matched directly; a paraphrase is settled by asking the model, which only merges
 when it is confident. `PKM_FUZZY_DEDUP=0` turns that off.
 
+**Your meetings do not have to be in English.** Hindi, Hinglish, Chinese, Arabic,
+Tamil, Thai and the rest all work: the quote check measures a script in the units
+that script uses, and tasks come back in the language the meeting was held in.
+
 **A dictated note is read differently from a meeting.** Captures get their own
 prompt and a lower minimum quote length, because "book the banner" is a real task
 and three words long.
@@ -215,7 +219,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **727 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **877 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash
@@ -231,6 +235,7 @@ done
 | `test_ui` `test_tasks` `test_server` | notes, the design rules, the read-only board, the endpoints |
 | `test_notion` `test_wispr` `test_capture` | push/pull, the importer, capture |
 | `test_status` `test_instruct` `test_capture_handoff` | the menu bar, instructions, the handoff contract |
+| `test_languages` | fifteen languages, mixed scripts, and the floors that used to assume English |
 | `test_live` | a real provider call. **Costs tokens** |
 | `stress.py` | hostile input, concurrency, failure injection. `STRESS_LIVE=1` adds a real model and a real Notion, and archives everything it creates |
 

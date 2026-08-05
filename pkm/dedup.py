@@ -25,14 +25,37 @@ some such very want wants ll ve re s t d m
 """.split()
 )
 
-_PUNCT = re.compile(r"[^\w\s]+", re.UNICODE)
 _WS = re.compile(r"\s+")
 
 
+def _depunctuate(text: str) -> str:
+    """Replace punctuation with spaces, keeping every letter and its marks.
+
+    `[^\\w\\s]` looks script-agnostic and is not: `\\w` does not match combining
+    marks, so every Devanagari vowel sign counts as punctuation. "मैं डेक भेजूंगा"
+    came out as "म ड क भ ज ग" — the consonant skeleton — and two unrelated Hindi
+    tasks then scored 0.86 and were merged into one.
+
+    Category `M*` is what carries the vowel in most Indic scripts, in Thai, in
+    Arabic diacritics and in Hangul. It has to survive.
+    """
+    return "".join(
+        ch if (ch.isalnum() or ch.isspace() or unicodedata.category(ch).startswith("M"))
+        else " "
+        for ch in text
+    )
+
+
 def normalise_text(text: str) -> str:
-    """Lowercase, strip punctuation and stopwords, return a token string."""
-    text = unicodedata.normalize("NFKD", text or "").casefold()
-    text = _PUNCT.sub(" ", text)
+    """Lowercase, strip punctuation and stopwords, return a token string.
+
+    NFC rather than NFKD: decomposing splits a letter from its marks, and the
+    stripping above then throws the marks away. The cost is that "café" and
+    "cafe" no longer fold together, which is a far smaller loss than flattening
+    every Indic language to its consonants.
+    """
+    text = unicodedata.normalize("NFC", text or "").casefold()
+    text = _depunctuate(text)
     tokens = [t for t in _WS.split(text) if t and t not in STOPWORDS]
     return " ".join(tokens)
 
@@ -58,9 +81,10 @@ def normalise_owner(owner: str, direction: str | None = None) -> str:
     if direction == "mine":
         return "me"
 
-    raw = unicodedata.normalize("NFKD", owner or "").casefold().strip()
-    raw = _PUNCT.sub(" ", raw)
-    raw = _WS.sub(" ", raw).strip()
+    # Same treatment as the task text: a name written in Devanagari must not be
+    # reduced to its consonants before it is compared with PKM_ME.
+    raw = unicodedata.normalize("NFC", owner or "").casefold().strip()
+    raw = _WS.sub(" ", _depunctuate(raw)).strip()
     if not raw:
         return ""
 

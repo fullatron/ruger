@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 727 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 877 assertions.
 
 `scratch/stress.py` is the other kind: hostile input, twelve concurrent writers,
 injected failures, and — with `STRESS_LIVE=1` — a real model and a real Notion.
@@ -125,6 +125,24 @@ scripts/capture-dialog.js a real multi-line box through the ObjC bridge
 ```
 
 ## Constraints that are easy to break by accident
+
+- **Nothing in the text path may assume English** (§16). Three bugs, all silent:
+  `quote.split()` counted words in scripts that have none, so every Chinese,
+  Japanese and Thai commitment was dropped; `[^\w\s]` treated Devanagari vowel
+  marks as punctuation, flattening Hindi to consonants and merging unrelated
+  tasks at 0.86; and ASCII-only slugs gave every non-Latin title the same
+  filename, so one meeting overwrote another. `scratch/test_languages.py` covers
+  fifteen languages — run it before touching `verify_quote`, `normalise_text` or
+  either `slug`.
+- **"No spaces" is not "dense script".** `_dense` checks the characters against
+  the ranges of scripts that genuinely run words together. The lazy version
+  called every single English word dense and let "audit" clear the floor.
+- **Capture filenames carry microseconds and a counter.** Seconds were not
+  unique enough: two captures in one second shared a filename AND an `id:`, so
+  the second replaced the first.
+- **Never infer new rows by diffing id sets.** SQLite reuses a freed rowid, so
+  "after minus before" is empty exactly when the episode's rows were just
+  cleared. `apply_extraction` returns the ids it inserted.
 
 - **`transaction()` must stay `BEGIN IMMEDIATE`.** A plain `BEGIN` is deferred:
   the connection reads first and asks to upgrade when it writes, and SQLite

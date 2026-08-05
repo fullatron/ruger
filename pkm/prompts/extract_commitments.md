@@ -71,6 +71,15 @@ One commitment per distinct action. If one sentence contains two actions by the
 same person, emit two. If the same action is restated three times in the notes,
 emit it once, quoting the clearest statement.
 
+## Language
+
+Notes are not always in English. Write `task` in **the same language as the
+note** — a Hindi meeting produces Hindi tasks — so the task reads in the words
+the person actually used and matches the evidence beside it. Do not translate.
+
+`quote` is always copied from the note exactly as written, whatever the script.
+`owner` is the person's name as it appears, in its own script.
+
 ## Output shape
 
 Return exactly this, and nothing else — no prose before or after, no markdown

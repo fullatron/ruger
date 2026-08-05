@@ -23,7 +23,7 @@ def apply_extraction(
     occurred_at = episode["started_at"]
     event_id = episodes.primary_event_id(conn, episode_id)
 
-    result = {"created": 0, "merged": 0, "dropped": len(dropped)}
+    result = {"created": 0, "merged": 0, "dropped": len(dropped), "created_ids": []}
 
     db.clear_commitments_for_episode(conn, episode_id)
 
@@ -49,7 +49,7 @@ def apply_extraction(
             result["merged"] += 1
             continue
 
-        db.insert_commitment(
+        result["created_ids"].append(db.insert_commitment(
             conn,
             {
                 **item,
@@ -57,7 +57,7 @@ def apply_extraction(
                 "event_id": event_id,
                 "occurred_at": occurred_at,
             },
-        )
+        ))
         result["created"] += 1
 
     for item in dropped:
@@ -82,9 +82,6 @@ def extract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> di
         return {"error": f"{label}: {exc}", "created": 0, "merged": 0,
                 "dropped": 0, "drops": [], "commitment_ids": []}
 
-    before = {
-        r["id"] for r in conn.execute("SELECT id FROM commitments").fetchall()
-    }
     with db.transaction(conn):
         applied = apply_extraction(
             conn, episode, outcome.get("kept", []), outcome.get("dropped", [])
@@ -94,9 +91,6 @@ def extract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> di
             int(episode["id"]),
             outcome.get("usage", {}).get("model") or config.MODEL,
         )
-    after = {
-        r["id"] for r in conn.execute("SELECT id FROM commitments").fetchall()
-    }
 
     return {
         "error": None,
@@ -108,7 +102,11 @@ def extract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> di
              "task": d.get("task"), "quote": d.get("quote")}
             for d in outcome.get("dropped", [])
         ],
-        "commitment_ids": sorted(after - before),
+        # The ids the insert actually returned. This used to diff the set of ids
+        # before and after, which silently returned nothing whenever a row had
+        # just been cleared from this episode: SQLite reuses the freed rowid, so
+        # "after" equalled "before" and a real capture reported zero tasks.
+        "commitment_ids": applied["created_ids"],
         "usage": outcome.get("usage"),
     }
 

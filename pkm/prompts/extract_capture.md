@@ -74,6 +74,15 @@ as theirs is one they stop expecting to do.
   produces odd spellings and missing commas — copy them exactly as they appear.
 - `speaker` — always `null` here. Nobody was speaking to anybody.
 
+## Language
+
+Notes are not always in English. Write `task` in **the same language as the
+note** — a Hindi meeting produces Hindi tasks — so the task reads in the words
+the person actually used and matches the evidence beside it. Do not translate.
+
+`quote` is always copied from the note exactly as written, whatever the script.
+`owner` is the person's name as it appears, in its own script.
+
 ## Output shape
 
 Return exactly this and nothing else — no prose, no markdown fences. Use these

@@ -52,6 +52,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -344,9 +345,18 @@ def scalar(value: str) -> str:
 
 
 def slug(value: str) -> str:
+    """A filesystem-safe stem that keeps the title's own script.
+
+    ASCII-only was quietly destructive: every Devanagari, Han or Arabic title
+    slugged to the same fallback, so two meetings on one day produced ONE
+    filename and the second overwrote the first. A whole meeting disappeared.
+
+    Unicode letters and digits are kept; separators, dots and controls are not,
+    which is what the safety was ever about.
+    """
     out, dash = "", True
     for ch in value or "":
-        if ch.isascii() and ch.isalnum():
+        if ch.isalnum() or unicodedata.category(ch).startswith("M"):
             out += ch.lower()
             dash = False
         elif not dash:

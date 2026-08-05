@@ -78,10 +78,17 @@ def write_note(text: str, when: datetime | None = None,
     root.mkdir(parents=True, exist_ok=True)
 
     title = title_for(text, when)
-    # Seconds are in the id because two captures a minute apart are two notes, and
-    # the id is what stops a re-run from creating a second episode for one of them.
-    stamp = when.strftime("%Y%m%d-%H%M%S")
+    # The stamp is the note's identity, so it has to be unique per capture rather
+    # than per second: two in the same second wrote to ONE file, and the second
+    # silently replaced the first — same filename, same `id:`, same episode.
+    # Microseconds, and then a counter, because a clock is not a guarantee.
+    stamp = when.strftime("%Y%m%d-%H%M%S-%f")
     path = root / f"{when.date().isoformat()}-capture-{stamp}.md"
+    bump = 2
+    while path.exists():
+        path = root / f"{when.date().isoformat()}-capture-{stamp}-{bump}.md"
+        bump += 1
+    stamp = path.stem.split("capture-", 1)[1]
 
     body = "\n".join([
         "---",

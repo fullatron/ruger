@@ -676,6 +676,51 @@ is still only reported, and archived only with `--prune`.
 
 ---
 
+## 16. Languages that are not English
+
+An hour of looking found three bugs, each of which lost data silently, and none
+of which any English test could ever have caught.
+
+**D27 — a quote is measured in the units its script uses.** `verify_quote`
+counted `quote.split()`, so a Chinese, Japanese or Thai sentence counted as ONE
+word and **every commitment from such a meeting was dropped as `too_short`**. The
+character floor was English-density too: "내일 자료를 보내겠습니다" is a complete Korean
+commitment in 13 characters and "我明天发资料" a complete Chinese one in 6.
+
+Two floors now. Spaced scripts need words *and* characters (3 / 12); dense
+scripts need characters alone (5). And "dense" is decided by the **characters**,
+not by the absence of spaces — the obvious version called every single English
+word a dense script and let "audit" and "YouTube" through as if they were
+sentences. Korean is spaced and is deliberately not on the dense list.
+
+**D28 — normalisation must not throw away the vowels.** `[^\w\s]` reads as
+script-agnostic and is not: `\w` does not match combining marks, so every
+Devanagari vowel sign was treated as punctuation. "मैं डेक भेजूंगा" became "म ड क भ ज ग"
+— the consonant skeleton — and two unrelated Hindi tasks scored **0.86**, over
+the merge threshold. Unicode category `M*` is kept now, and NFC replaces NFKD so
+letters are not split from their marks in the first place. The cost, accepted:
+"café" and "cafe" no longer fold together.
+
+**D29 — a filename keeps its own script.** Slugs were ASCII-only, so every
+Devanagari, Han or Arabic title collapsed to the same fallback. Two meetings on
+one day produced **one filename**, and the second overwrote the first. A whole
+meeting disappeared.
+
+**Tasks are written in the language of the note.** A Hindi meeting produces Hindi
+tasks. Left undefined, the same model wrote English tasks for a Hindi meeting and
+Chinese tasks for a Chinese one; the task now reads in the words the person used
+and matches the evidence beside it. One line in the prompt if you ever want
+English instead.
+
+*Two bugs that were not about language at all, found by the same tests.* Capture
+filenames were stamped to the second, so two captures inside one second wrote to
+one file under one id and the second silently replaced the first. And
+`extract_episode` inferred which rows were new by diffing id sets before and
+after — which returns nothing whenever the episode's rows were just cleared,
+because SQLite reuses a freed rowid. It reports the ids the insert returned now.
+
+---
+
 ## Build order
 
 | | | |
@@ -692,7 +737,8 @@ is still only reported, and archived only with `--prune`.
 | **Step 10** | Subtasks as checklist blocks (§13) | **done** |
 | **Step 11** | Deleting means deleting (§14) | **done** |
 | **Step 12** | Breaking a task into steps automatically (§13) | not started |
-| **Step 13** | Slack — under discussion, see §15 | not started |
+| **Step 13** | Languages that are not English (§16) | **done** |
+| **Step 14** | Slack — under discussion | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

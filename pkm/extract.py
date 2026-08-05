@@ -22,10 +22,47 @@ CAPTURE_PROMPT_PATH = PROMPTS / "extract_capture.md"
 _SYSTEM_MARKER = re.compile(r"^#\s*=+\s*SYSTEM\s*=+\s*$", re.MULTILINE | re.IGNORECASE)
 _USER_MARKER = re.compile(r"^#\s*=+\s*USER\s*=+\s*$", re.MULTILINE | re.IGNORECASE)
 
-# A quote shorter than this cannot meaningfully corroborate anything, and short
-# fragments match by accident.
-MIN_QUOTE_WORDS = 4
-MIN_QUOTE_CHARS = 15
+# A quote shorter than this cannot corroborate anything, and short fragments match
+# by accident. Both numbers used to encode English, in two ways.
+#
+# `quote.split()` counts space-separated words, and Chinese, Japanese and Thai do
+# not separate words at all — a whole sentence counted as ONE word, so every
+# commitment from such a meeting was dropped as `too_short`, silently. And the
+# character floor assumed English density: "내일 자료를 보내겠습니다" is a complete
+# Korean commitment in 13 characters, "我明天发资料" a complete Chinese one in 6.
+#
+# So there are two floors. Where a script uses spaces, a quote needs both words
+# and characters. Where it does not, characters alone — in a script whose
+# characters are morphemes, five of them is already a specific string.
+MIN_QUOTE_WORDS = 3
+MIN_QUOTE_CHARS = 12
+DENSE_MIN_QUOTE_CHARS = 5
+
+
+# Scripts that genuinely do not put spaces between words. Hangul is deliberately
+# absent: Korean is written with spaces, so it is measured like any other spaced
+# language.
+_DENSE_RANGES = (
+    (0x3400, 0x4DBF), (0x4E00, 0x9FFF), (0xF900, 0xFAFF),   # Han
+    (0x3040, 0x309F), (0x30A0, 0x30FF),                     # kana
+    (0x0E00, 0x0E7F), (0x0E80, 0x0EFF),                     # Thai, Lao
+    (0x1000, 0x109F), (0x1780, 0x17FF), (0x0F00, 0x0FFF),   # Myanmar, Khmer, Tibetan
+)
+
+
+def _dense(text: str) -> bool:
+    """Is this written in a script that does not separate words with spaces?
+
+    Asking "does it contain a space" is the obvious version and it is wrong: it
+    calls every single English word a dense script, so "audit" and "YouTube"
+    cleared the floor as though they were sentences. The question is about the
+    characters, not the spacing.
+    """
+    letters = [ch for ch in text if ch.isalpha()]
+    if not letters:
+        return False
+    dense = sum(any(lo <= ord(ch) <= hi for lo, hi in _DENSE_RANGES) for ch in letters)
+    return dense * 2 > len(letters)
 
 # §10, D14. A capture is one sentence the user dictated at themselves, so the
 # transcript floor is wrong here: "book the banner" is three words and would be
@@ -34,6 +71,7 @@ MIN_QUOTE_CHARS = 15
 # catches invention.
 CAPTURE_MIN_QUOTE_WORDS = 2
 CAPTURE_MIN_QUOTE_CHARS = 6
+CAPTURE_DENSE_MIN_QUOTE_CHARS = 3
 
 CAPTURE_KIND = "capture"
 
@@ -95,11 +133,16 @@ def prompt_for(episode) -> Path:
     return CAPTURE_PROMPT_PATH if is_capture(episode) else PROMPT_PATH
 
 
-def quote_floor(episode) -> tuple[int, int]:
-    """(min_words, min_chars) for the verbatim check on this episode."""
+def quote_floor(episode) -> tuple[int, int, int]:
+    """(min_words, min_chars, min_dense_chars) for the check on this episode.
+
+    Three numbers, not two, because a script without spaces cannot be measured in
+    words at all and needs its own floor rather than one derived by arithmetic.
+    """
     if is_capture(episode):
-        return CAPTURE_MIN_QUOTE_WORDS, CAPTURE_MIN_QUOTE_CHARS
-    return MIN_QUOTE_WORDS, MIN_QUOTE_CHARS
+        return (CAPTURE_MIN_QUOTE_WORDS, CAPTURE_MIN_QUOTE_CHARS,
+                CAPTURE_DENSE_MIN_QUOTE_CHARS)
+    return MIN_QUOTE_WORDS, MIN_QUOTE_CHARS, DENSE_MIN_QUOTE_CHARS
 
 
 def load_prompt(path: Path | None = None) -> tuple[str, str]:
@@ -216,7 +259,8 @@ def _loosen(text: str, *, markup: bool = False) -> str:
 
 
 def verify_quote(quote: str, transcript: str, *, min_words: int | None = None,
-                 min_chars: int | None = None) -> tuple[bool, str]:
+                 min_chars: int | None = None,
+                 min_dense_chars: int | None = None) -> tuple[bool, str]:
     """Check a quote really came from the transcript.
 
     Returns (ok, how), where `how` records how much normalising it took:
@@ -229,7 +273,13 @@ def verify_quote(quote: str, transcript: str, *, min_words: int | None = None,
     quote = (quote or "").strip()
     floor_chars = MIN_QUOTE_CHARS if min_chars is None else min_chars
     floor_words = MIN_QUOTE_WORDS if min_words is None else min_words
-    if len(quote) < floor_chars or len(quote.split()) < floor_words:
+
+    floor_dense = DENSE_MIN_QUOTE_CHARS if min_dense_chars is None else min_dense_chars
+
+    if _dense(quote):
+        if len(quote) < floor_dense:
+            return False, "too_short"
+    elif len(quote) < floor_chars or len(quote.split()) < floor_words:
         return False, "too_short"
 
     if quote in transcript:
@@ -256,7 +306,7 @@ def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
     iteration can see exactly what the model got wrong.
     """
     transcript = episode["transcript"]
-    min_words, min_chars = quote_floor(episode)
+    min_words, min_chars, min_dense = quote_floor(episode)
     kept: list[dict] = []
     dropped: list[dict] = []
 
@@ -288,7 +338,8 @@ def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
             continue
 
         ok, how = verify_quote(record.get("quote", ""), transcript,
-                               min_words=min_words, min_chars=min_chars)
+                               min_words=min_words, min_chars=min_chars,
+                               min_dense_chars=min_dense)
         if not ok:
             record["_reason"] = f"quote {how}"
             dropped.append(record)
