@@ -233,11 +233,19 @@ def main() -> None:
         check("serving", isinstance(payload.get("serving"), bool), True)
         check("url", str(payload.get("url", "")).startswith("http"), True)
 
-        swift = ROOT / "menubar" / "RugerBar.swift"
+        swift = (ROOT / "menubar" / "RugerBar.swift").read_text(encoding="utf-8")
         check("the app reads the same keys it is handed",
-              all(f'"{k}"' in swift.read_text(encoding="utf-8")
+              all(f'"{k}"' in swift
                   for k in ("total", "todo", "overdue", "stale", "serving", "url")),
               True)
+        # A plain executable has no menu bar, and AppKit routes ⌘V through the
+        # Edit menu — without one the box refuses to paste while typing works,
+        # which is exactly what happened.
+        check("and it builds an Edit menu, or the box will not paste",
+              all(bit in swift for bit in ("NSApp.mainMenu", "NSText.paste(_:)",
+                                           'keyEquivalent: "v"')), True)
+        check("with a fallback for when the menu is not consulted",
+              'case "v": paste(nil)' in swift, True)
 
     print(f"\nOK — {PASSES['n']} assertions. Counts are right, and a stopped timer "
           f"is visible without reading a log.")

@@ -117,16 +117,37 @@ struct Snapshot {
 
 // MARK: - The box
 
-/// Catches Command-Return before the text view turns it into a newline.
+/// Catches Command-Return before the text view turns it into a newline, and backs
+/// up the Edit menu for the standard editing shortcuts.
 final class CaptureTextView: NSTextView {
     var onSubmit: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if event.modifierFlags.contains(.command), event.keyCode == 36 {
+        guard event.modifierFlags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+
+        if event.keyCode == 36 {                       // Return
             onSubmit?()
             return true
         }
-        return super.performKeyEquivalent(with: event)
+
+        // AppKit reaches here only when the main menu did not claim the shortcut.
+        // The Edit menu normally does, so this is a safety net for the case that
+        // put it here in the first place: no menu, or the app not yet active, and
+        // ⌘V silently doing nothing in a box you are staring at.
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "v": paste(nil); return true
+        case "c": copy(nil); return true
+        case "x": cut(nil); return true
+        case "a": selectAll(nil); return true
+        case "z":
+            let manager = undoManager
+            if event.modifierFlags.contains(.shift) { manager?.redo() } else { manager?.undo() }
+            return true
+        default:
+            return super.performKeyEquivalent(with: event)
+        }
     }
 }
 
@@ -156,6 +177,7 @@ final class CaptureViewController: NSViewController {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.textContainerInset = NSSize(width: 5, height: 7)
+        textView.allowsUndo = true          // or the Edit menu's Undo does nothing
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
         textView.onSubmit = { [weak self] in self?.capture() }
@@ -242,6 +264,52 @@ final class CaptureViewController: NSViewController {
     }
 }
 
+// MARK: - The main menu
+
+/// Cut, Copy, Paste, Select All and Undo are dispatched by the application's Edit
+/// menu — AppKit routes ⌘V by looking for a matching key equivalent there, then
+/// sending `paste:` to the first responder. A plain executable has no main menu
+/// unless it builds one, so without this the text box silently refuses ⌘V while
+/// typing and dictation work fine.
+///
+/// Undo and Redo stay as raw selectors because no imported protocol declares
+/// them; the rest resolve through AppKit, so they get the checked `#selector`
+/// form and the build stays warning-free.
+func buildMainMenu() -> NSMenu {
+    let main = NSMenu()
+
+    let appItem = NSMenuItem()
+    let appMenu = NSMenu()
+    appMenu.addItem(withTitle: "Quit Ruger",
+                    action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    appItem.submenu = appMenu
+    main.addItem(appItem)
+
+    let editItem = NSMenuItem()
+    let edit = NSMenu(title: "Edit")
+    edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+    if let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")),
+                               keyEquivalent: "z") as NSMenuItem? {
+        redo.keyEquivalentModifierMask = [.command, .shift]
+    }
+    edit.addItem(.separator())
+    edit.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+    edit.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+    edit.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+    if let plain = edit.addItem(withTitle: "Paste and Match Style",
+                                action: #selector(NSTextView.pasteAsPlainText(_:)),
+                                keyEquivalent: "v") as NSMenuItem? {
+        plain.keyEquivalentModifierMask = [.command, .option, .shift]
+    }
+    edit.addItem(withTitle: "Select All",
+                 action: #selector(NSStandardKeyBindingResponding.selectAll(_:)),
+                 keyEquivalent: "a")
+    editItem.submenu = edit
+    main.addItem(editItem)
+
+    return main
+}
+
 // MARK: - The status item
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -252,6 +320,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.mainMenu = buildMainMenu()
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.target = self
         statusItem.button?.action = #selector(toggle)
@@ -315,6 +385,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         guard let button = statusItem.button else { return }
         refresh()
+        // Menu key equivalents only reach an app that is active, so ⌘V depends on
+        // this as much as on the Edit menu existing.
+        NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         // Focus after showing: before the popover has a window there is no first
         // responder to set, and the box would open needing a click.

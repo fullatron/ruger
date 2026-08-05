@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 601 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 603 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -71,7 +71,7 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 601 assertions.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, contract      (77)
+.venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (47)
 cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
@@ -382,6 +382,16 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
 - **No app bundle.** A plain executable with `.accessory` activation policy is a
   menu bar app already. A bundle would add signing and Info.plist upkeep for
   something launchd starts, not Finder.
+- **A menu bar app still needs a main menu, or the text box will not paste.**
+  AppKit dispatches ⌘V by finding a matching key equivalent in `NSApp.mainMenu`
+  and sending `paste:` to the first responder. A plain executable has no menu
+  until it builds one, so typing and dictation worked while ⌘V did nothing —
+  which reads as a broken text field rather than a missing menu. `buildMainMenu()`
+  supplies Undo/Redo/Cut/Copy/Paste/Select All, `NSApp.activate` runs before the
+  popover opens because menu equivalents only reach an active app, and
+  `CaptureTextView.performKeyEquivalent` handles the same shortcuts as a fallback
+  for when the menu is not consulted at all. `textView.allowsUndo` has to be set
+  or the Undo item is inert.
 - **`display dialog` cannot be the capture box.** AppleScript's field is ONE line
   that scrolls sideways, which reads as a character limit when you dictate a
   paragraph. `scripts/capture-dialog.js` builds an NSAlert with a real scrollable

@@ -622,7 +622,7 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **601
+No framework — scripts that print PASS/FAIL and exit non-zero. **603
 assertions** across eleven suites.
 
 ```bash
@@ -634,7 +634,7 @@ assertions** across eleven suites.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, contract    (77)
+.venv/bin/python scratch/test_status.py             # counts, liveness, contract    (79)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion    (47)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
