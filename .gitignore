@@ -1,0 +1,13 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.db
+*.db-wal
+*.db-shm
+
+# macOS metadata: records the names of files in a directory, including deleted ones.
+.DS_Store
+
+# Machine-local tool permissions. Personal to one checkout, not part of the project.
+.claude/settings.local.json

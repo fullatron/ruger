@@ -1,0 +1,98 @@
+"""D4: one task, with a mention count.
+
+Matching is same `owner`, plus normalised-text similarity above a threshold,
+among open rows only. Token-overlap Jaccard to start; escalate to an LLM
+tie-break only for candidate pairs if this misclassifies. Not yet — this is
+deliberately the dumb version.
+"""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+
+from . import config
+
+# Small and boring on purpose. Anything that carries task meaning stays.
+STOPWORDS = frozenset(
+    """
+a an and are as at be been being by do does for from get go going had has have
+in into is it its of on onto or our out over per so than that the their them
+then there these they this those to up upon us was were will with would you
+your i me my we he she his her hers him am can could should shall may might
+about again also just make made need needs new next now once other own same
+some such very want wants ll ve re s t d m
+""".split()
+)
+
+_PUNCT = re.compile(r"[^\w\s]+", re.UNICODE)
+_WS = re.compile(r"\s+")
+
+
+def normalise_text(text: str) -> str:
+    """Lowercase, strip punctuation and stopwords, return a token string."""
+    text = unicodedata.normalize("NFKD", text or "").casefold()
+    text = _PUNCT.sub(" ", text)
+    tokens = [t for t in _WS.split(text) if t and t not in STOPWORDS]
+    return " ".join(tokens)
+
+
+def tokens(normalised: str) -> set[str]:
+    return set(normalised.split())
+
+
+def jaccard(a: str, b: str) -> float:
+    ta, tb = tokens(a), tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def normalise_owner(owner: str, direction: str | None = None) -> str:
+    """Fold the user's own names (and first person) to the single key 'me'.
+
+    §5 wants speaker attribution from Granola's mic-vs-system labelling, but an
+    exported *summary* has no mic labels — so the user's names are configured
+    (PKM_ME) and folded here instead.
+    """
+    if direction == "mine":
+        return "me"
+
+    raw = unicodedata.normalize("NFKD", owner or "").casefold().strip()
+    raw = _PUNCT.sub(" ", raw)
+    raw = _WS.sub(" ", raw).strip()
+    if not raw:
+        return ""
+
+    aliases = {a.casefold().strip() for a in config.ME_ALIASES}
+    aliases |= {"me", "i", "myself", "self"}
+    if raw in aliases:
+        return "me"
+    # "alex" matches a configured alias "Alex Rao", and vice versa.
+    for alias in aliases:
+        if alias and (raw == alias or raw in alias.split() or alias in raw.split()):
+            return "me"
+    return raw
+
+
+def find_match(
+    candidate: dict,
+    existing: list,
+    threshold: float | None = None,
+) -> tuple[object | None, float]:
+    """Best open commitment this candidate is a restatement of.
+
+    `existing` is rows/dicts that already passed the owner filter. Returns
+    (row, score) or (None, best_score) when nothing clears the threshold.
+    """
+    cutoff = config.DEDUP_THRESHOLD if threshold is None else threshold
+    best, best_score = None, 0.0
+
+    for row in existing:
+        score = jaccard(candidate["task_norm"], row["task_norm"])
+        if score > best_score:
+            best, best_score = row, score
+
+    if best_score >= cutoff:
+        return best, best_score
+    return None, best_score

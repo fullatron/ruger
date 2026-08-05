@@ -1,0 +1,1905 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ruger</title>
+<style>
+/* ============================================================
+   Notion-flavoured dark UI.
+
+   Grounds and ink are Notion's own values, not approximations:
+   #191919 content, #202020 sidebar, and body text at 81% white.
+   Notion never uses pure white for copy, which is most of why
+   its dark mode reads soft rather than harsh. Hover states are
+   translucent white overlays rather than solid fills.
+
+   Two systems do the heavy lifting, and both are theme-aware:
+
+     spacing   --s1..--s7, plus --nav-pad / --gutter / --measure
+     elevation --edge + --shadow-sm|md|lg, and --r-sm|md|lg
+
+   Elevation is the subtle one. On a dark ground, depth comes
+   from a LIGHTER edge; Notion's own shadows are dark-on-white
+   and vanish on #191919, which is exactly what made an earlier
+   pass read as flat placeholder boxes. Every surface therefore
+   gets a visible 1px --edge, and only the shadow varies by
+   height. Style through the tokens, never with raw values.
+   ============================================================ */
+
+:root {
+  /* grounds */
+  --bg:            #191919;
+  --bg-sidebar:    #202020;
+  --bg-elevated:   #252525;
+  --bg-elev-hover: #2a2a2a;
+  --bg-input:      #1f1f1f;
+  --hover:         rgba(255,255,255,.055);
+  --hover-strong:  rgba(255,255,255,.08);
+  --active:        rgba(255,255,255,.03);
+
+  /* ink */
+  --text:          rgba(255,255,255,.81);
+  --text-2:        rgba(255,255,255,.443);
+  --text-3:        rgba(255,255,255,.282);
+  --border:        rgba(255,255,255,.094);
+  --border-strong: rgba(255,255,255,.13);
+
+  --blue:          #2383e2;
+  --blue-hover:    #0077d4;
+
+  /* Notion chip colours. D3's mine/theirs distinction, expressed
+     in Notion's own tag vocabulary. */
+  --purple:        #9a6dd7;   --purple-bg: rgba(103,36,222,.28);
+  --green:         #4dab9a;   --green-bg:  rgba(0,135,107,.28);
+  --red:           #ff7369;   --red-bg:    rgba(255,0,26,.15);
+  --yellow:        #e8c65c;   --yellow-bg: rgba(160,120,0,.20);
+  --gray-chip:     rgba(255,255,255,.06);
+
+  /* Elevation on a dark ground comes from a LIGHTER edge plus a deeper
+     shadow. Notion's own shadows are dark-on-white; reused as-is on #191919
+     they are invisible, which is what made cards read as flat placeholders. */
+  --edge:          rgba(255,255,255,.11);
+  --edge-hover:    rgba(255,255,255,.20);
+  --shadow-sm:     0 1px 2px rgba(0,0,0,.28);
+  --shadow-md:     0 4px 12px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.24);
+  --shadow-lg:     0 16px 48px rgba(0,0,0,.50), 0 4px 12px rgba(0,0,0,.30);
+
+  /* One radius scale: chips, controls, panels. */
+  --r-sm: 4px;   /* chips, dots */
+  --r-md: 6px;   /* cards, inputs, buttons, nav items */
+  --r-lg: 10px;  /* callouts, panels, drop zones, toast */
+  --radius:        var(--r-md);
+
+  /* One spacing scale. Every gap and pad below comes from here, so the
+     vertical rhythm is consistent instead of hand-tuned per component. */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px;
+
+  /* Sidebar items and the workspace header share one left inset so their
+     icons sit on the same vertical line. */
+  --nav-pad: 8px;
+  --gutter:  96px;   /* Notion's page gutter */
+  --measure: 708px;  /* Notion's content column */
+
+  color-scheme: dark;
+
+  --sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+          "Apple Color Emoji", Arial, sans-serif;
+  --mono: "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* Notion ships a light mode too; this one is opt-in via the sidebar
+   toggle rather than the OS, because the brief was dark. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;  --bg-sidebar: #f7f7f5;  --bg-elevated: #ffffff;
+  --bg-elev-hover: #fcfcfb;  --bg-input: #f7f7f5;
+  --hover: rgba(55,53,47,.06);  --hover-strong: rgba(55,53,47,.09);
+  --active: rgba(55,53,47,.03);
+  --text: rgb(55,53,47);  --text-2: rgba(55,53,47,.65);  --text-3: rgba(55,53,47,.4);
+  --border: rgba(55,53,47,.09);  --border-strong: rgba(55,53,47,.16);
+  --purple: #6940a5; --purple-bg: rgba(103,36,222,.12);
+  --green:  #0f7b6c; --green-bg:  rgba(0,135,107,.12);
+  --red:    #e03e3e; --red-bg:    rgba(255,0,26,.09);
+  --yellow: #cb912f; --yellow-bg: rgba(233,168,0,.18);
+  --gray-chip: rgba(55,53,47,.06);
+  /* Light mode inverts the logic: a darker edge, softer shadows. */
+  --edge: rgba(15,15,15,.12);
+  --edge-hover: rgba(15,15,15,.22);
+  --shadow-sm: 0 1px 2px rgba(15,15,15,.06);
+  --shadow-md: 0 4px 12px rgba(15,15,15,.10), 0 1px 3px rgba(15,15,15,.06);
+  --shadow-lg: 0 16px 48px rgba(15,15,15,.16), 0 4px 12px rgba(15,15,15,.08);
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 16px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; border-radius: var(--r-sm); }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+/* ---------- app shell ---------- */
+.app { display: flex; height: 100vh; }
+
+.sidebar {
+  width: 240px; flex: 0 0 240px; background: var(--bg-sidebar);
+  display: flex; flex-direction: column;
+  border-right: 1px solid var(--border); user-select: none;
+}
+/* The tile, the nav icons and the footer icons all start at
+   --nav-pad * 2, which is what keeps the sidebar's left edge true. */
+.ws {
+  display: flex; align-items: center; gap: var(--s2); height: 45px;
+  padding: 0 var(--s3) 0 calc(var(--nav-pad) * 2); margin: 0; cursor: default;
+}
+.ws:hover { background: var(--hover); }
+.ws-tile {
+  width: 20px; height: 20px; border-radius: var(--r-sm); flex: 0 0 20px;
+  box-shadow: var(--shadow-sm);
+  background: linear-gradient(150deg, var(--purple), var(--blue));
+  display: grid; place-items: center; font-size: 11px; color: #fff; font-weight: 700;
+  letter-spacing: 0;
+}
+.ws-name { font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+.ws-sub {
+  font-size: 12px; color: var(--text-3); margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+nav { padding: var(--s1) var(--nav-pad); flex: 1; overflow-y: auto; }
+.nav-label {
+  font-size: 12px; font-weight: 500; color: var(--text-3);
+  padding: var(--s4) var(--nav-pad) var(--s1); letter-spacing: .01em;
+}
+.nav-item {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  padding: var(--s1) var(--nav-pad); border: 0; background: transparent;
+  color: var(--text-2); font: inherit; font-size: 14px; font-weight: 500;
+  text-align: left; border-radius: var(--r-md); cursor: pointer; min-height: 29px;
+  transition: background .12s, color .12s;
+}
+.nav-item:hover { background: var(--hover); }
+.nav-item[aria-current="page"] { background: var(--hover-strong); color: var(--text); }
+/* 20px matches .ws-tile, so icon and tile share a left and right edge. */
+.nav-item .ico {
+  font-size: 14px; width: 20px; flex: 0 0 20px; text-align: center; opacity: .85;
+}
+.nav-item .count {
+  margin-left: auto; font-size: 12px; color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-foot {
+  padding: var(--s1) var(--nav-pad) var(--s2);
+  border-top: 1px solid var(--border); display: grid; gap: 1px;
+}
+
+/* ---------- main column ---------- */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.topbar {
+  height: 45px; flex: 0 0 45px; display: flex; align-items: center; gap: var(--s2);
+  padding: 0 var(--s3); border-bottom: 1px solid var(--border);
+}
+.crumb {
+  display: flex; align-items: center; gap: var(--s2); font-size: 14px;
+  padding: 4px var(--s2); border-radius: var(--r-sm); color: var(--text);
+}
+.crumb .ico { font-size: 14px; }
+.crumb-sep { color: var(--text-3); }
+.topbar .right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+
+.scroll { flex: 1; overflow-y: auto; }
+.content { padding: 0 var(--gutter) 120px; }
+@media (max-width: 900px) { .content { padding: 0 var(--s5) 96px; } }
+
+/* line-height 1 on the icon is what kills the dead band under the emoji:
+   at 78px, default leading adds ~18px of invisible space. */
+.page-head { padding-top: var(--s5); }
+.page-icon {
+  font-size: 72px; line-height: 1; margin-bottom: var(--s3);
+  height: 72px; display: flex; align-items: flex-end;
+}
+h1 {
+  font-size: 40px; font-weight: 700; line-height: 1.15; letter-spacing: -.021em;
+  margin: 0; text-wrap: balance;
+}
+.page-sub {
+  color: var(--text-2); font-size: 15px; line-height: 1.55;
+  margin: var(--s2) 0 0; max-width: 62ch;
+}
+
+/* view bar: Notion puts view tabs on the left, controls on the right */
+.viewbar {
+  display: flex; align-items: center; gap: 2px; margin-top: var(--s5);
+  border-bottom: 1px solid var(--border); min-height: 34px;
+}
+.tab {
+  border: 0; background: transparent; color: var(--text-2); font: inherit;
+  font-size: 14px; font-weight: 500; padding: var(--s2) var(--s3); cursor: pointer;
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+  border-radius: var(--r-sm) var(--r-sm) 0 0; transition: background .12s, color .12s;
+}
+.tab:hover { background: var(--hover); color: var(--text); }
+.tab[aria-pressed="true"] { color: var(--text); border-bottom-color: var(--text); }
+.viewbar .right {
+  margin-left: auto; display: flex; align-items: center; gap: var(--s1);
+}
+.viewbar .right .lbl { font-size: 13px; color: var(--text-3); }
+/* One active treatment per control type: tabs underline, these fill. */
+.seg { display: flex; gap: 1px; }
+.seg .btn { padding: var(--s1) var(--s2); min-height: 26px; }
+.seg .btn[aria-pressed="true"] { background: var(--hover-strong); color: var(--text); }
+
+/* ---------- buttons ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid transparent; background: transparent; color: var(--text-2);
+  font: inherit; font-size: 14px; font-weight: 500;
+  padding: var(--s1) var(--s2); border-radius: var(--r-md); cursor: pointer;
+  min-height: 30px; transition: background .12s, border-color .12s, color .12s,
+                                box-shadow .12s;
+}
+.btn:hover:not(:disabled) { background: var(--hover); color: var(--text); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary {
+  background: var(--blue); border-color: var(--blue); color: #fff;
+  padding: 6px 14px; box-shadow: var(--shadow-sm);
+}
+.btn.primary:hover:not(:disabled) {
+  background: var(--blue-hover); border-color: var(--blue-hover); color: #fff;
+  box-shadow: var(--shadow-md);
+}
+.btn.outline { border-color: var(--edge); }
+.btn.outline:hover:not(:disabled) { border-color: var(--edge-hover); }
+.btn.danger:hover { background: var(--red-bg); color: var(--red); }
+.btn .ico { font-size: 13px; opacity: .8; }
+
+/* ---------- board ---------- */
+.board { display: grid; gap: var(--s6); margin-top: var(--s5); }
+.lane { display: grid; gap: var(--s3); }
+.lane-head {
+  display: flex; align-items: center; gap: var(--s2); margin: 0;
+  font-size: 14px; font-weight: 600; color: var(--text);
+}
+.lane-head .n { font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+.cols {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--s3); align-items: start;
+}
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr; } }
+
+/* No padding: the status chip's box sits flush with the card's box below
+   it, so the column reads as one left edge. */
+.col { display: grid; gap: var(--s2); }
+.col-head {
+  display: flex; align-items: center; gap: var(--s2); padding: 0;
+  min-height: 26px;
+}
+.status {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font-size: 13.5px; font-weight: 500; color: var(--text);
+  background: var(--gray-chip); border-radius: var(--r-sm); padding: 3px 10px;
+}
+.status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.status[data-s="doing"] .dot { background: var(--blue); }
+.status[data-s="done"]  .dot { background: var(--green); }
+.col-head .n {
+  font-size: 13px; color: var(--text-3); font-variant-numeric: tabular-nums;
+  margin-left: -2px;
+}
+.col-head .right { margin-left: auto; opacity: 0; transition: opacity .12s; }
+.col:hover .col-head .right { opacity: 1; }
+
+/* Grid gap owns the spacing between cards, so the last card has no
+   stray trailing margin. min-height keeps an empty column a real
+   drop target. */
+.drop {
+  display: grid; gap: var(--s2); align-content: start;
+  border-radius: var(--radius); min-height: 72px; transition: background .12s;
+}
+.drop.over {
+  background: rgba(35,131,226,.07);
+  box-shadow: inset 0 0 0 1px var(--blue); border-radius: var(--r-md);
+}
+.drop.over .empty-col { border-color: var(--blue); color: var(--blue); }
+
+/* ---------- card ---------- */
+.card {
+  position: relative; background: var(--bg-elevated);
+  border: 1px solid var(--edge); border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm); padding: var(--s3);
+  cursor: grab; transition: border-color .13s, box-shadow .13s, background .13s;
+}
+.card:hover {
+  background: var(--bg-elev-hover); border-color: var(--edge-hover);
+  box-shadow: var(--shadow-md);
+}
+.card:active { cursor: grabbing; }
+.card.dragging { opacity: .4; box-shadow: var(--shadow-lg); }
+.card.pending { opacity: .55; }
+.card.fresh { animation: flash 1.4s ease; }
+@keyframes flash {
+  0%, 30% { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(35,131,226,.28), var(--shadow-md); }
+  100%    { border-color: var(--edge); box-shadow: var(--shadow-sm); }
+}
+
+.card-top { display: flex; align-items: flex-start; gap: 8px; }
+.check {
+  appearance: none; flex: 0 0 16px; width: 16px; height: 16px; margin: 2px 0 0;
+  border: 1.5px solid var(--text-3); border-radius: var(--r-sm); background: transparent;
+  cursor: pointer; display: grid; place-content: center;
+}
+.check:hover { border-color: var(--text-2); }
+.check:checked { background: var(--blue); border-color: var(--blue); }
+.check:checked::after {
+  content: ""; width: 8px; height: 4px; margin-top: -2px;
+  border: 1.7px solid #fff; border-top: 0; border-right: 0; transform: rotate(-45deg);
+}
+.card .title {
+  font-size: 14px; font-weight: 500; line-height: 1.35; letter-spacing: -.003em;
+  word-break: break-word;
+}
+.card.done .title { color: var(--text-3); text-decoration: line-through; }
+
+/* 24px indent = checkbox (16) + gap (8), so properties and evidence
+   hang under the title rather than under the checkbox. */
+.props { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2) 0 0 24px; }
+.chip {
+  display: inline-flex; align-items: center; gap: var(--s1);
+  font-size: 12px; line-height: 1.5; padding: 2px 8px; border-radius: var(--r-sm);
+  background: var(--gray-chip); color: var(--text-2); max-width: 100%;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.chip.person { background: var(--purple-bg); color: var(--purple); font-weight: 500; }
+.chip.person.theirs { background: var(--green-bg); color: var(--green); }
+.chip.date { font-variant-numeric: tabular-nums; }
+.chip.date.overdue { background: var(--red-bg); color: var(--red); font-weight: 500; }
+/* Repeats must draw the eye (a promise made three weeks running is the most
+   interesting thing here) without outshouting the task itself: coloured ink,
+   faint ground, normal weight. */
+.chip.repeat { background: var(--yellow-bg); color: var(--yellow); font-weight: 500; }
+
+/* Notion quote block: 3px rule, no italics, secondary ink. */
+.evidence {
+  margin: var(--s2) 0 0 24px; padding-left: var(--s3);
+  border-left: 2px solid var(--edge-hover);
+  font-size: 13px; line-height: 1.55; color: var(--text-2);
+}
+.evidence .src {
+  display: block; margin-top: var(--s1); color: var(--text-3); font-size: 12px;
+}
+
+.empty-col {
+  display: grid; place-items: center; color: var(--text-3); font-size: 13px;
+  min-height: 76px; border: 1px dashed var(--edge); border-radius: var(--r-md);
+}
+
+/* ---------- blank slate ---------- */
+.blank {
+  margin-top: var(--s6); max-width: 58ch; display: grid; gap: var(--s3);
+  justify-items: start; padding: var(--s6); border-radius: var(--r-lg);
+  border: 1px solid var(--edge); background: var(--bg-elevated);
+  box-shadow: var(--shadow-sm);
+}
+.blank h2 { font-size: 18px; margin: 0; font-weight: 600; }
+.blank p { color: var(--text-2); font-size: 15px; margin: 0; line-height: 1.55; }
+
+/* ---------- forms ---------- */
+.form { max-width: var(--measure); margin-top: var(--s6); display: grid; gap: var(--s5); }
+.fieldset { display: grid; gap: var(--s4); }
+.section-title {
+  font-size: 20px; font-weight: 600; letter-spacing: -.01em; margin: 0;
+  line-height: 1.3;
+}
+/* align-content:start stops grid rows stretching to fill the row height
+   the .two grid hands down. Without it, a field with no hint line inflates
+   its input to match a neighbour that has one. */
+.field { display: grid; gap: var(--s2); align-content: start; }
+.field > label {
+  font-size: 13px; font-weight: 500; color: var(--text-2); line-height: 1.3;
+}
+/* Hints live on their own line, not glued to the label with a dash. */
+/* Not scoped to .field: the form footer uses it too. */
+.desc { font-size: 12.5px; color: var(--text-3); margin: 0; line-height: 1.5; }
+.field .desc { margin-top: -2px; }
+.desc:empty { display: none; }
+input[type=text], input[type=password], input[type=date], textarea, select {
+  width: 100%; font: inherit; font-size: 14px; color: var(--text);
+  background: var(--bg-input); border: 1px solid var(--edge);
+  border-radius: var(--r-md); padding: var(--s2) var(--s3);
+  transition: border-color .12s, box-shadow .12s;
+}
+input:hover:not(:focus), textarea:hover:not(:focus), select:hover:not(:focus) {
+  border-color: var(--edge-hover);
+}
+input::placeholder, textarea::placeholder { color: var(--text-3); }
+input:focus, textarea:focus, select:focus {
+  outline: none; border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(35,131,226,.22);
+}
+textarea { min-height: 208px; resize: vertical; line-height: 1.6; }
+/* appearance:none strips the native arrow, so put one back or the
+   select reads as a plain text input. */
+select {
+  appearance: none; cursor: pointer; padding-right: var(--s6);
+  background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888888' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right var(--s3) center;
+}
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); align-items: start; }
+@media (max-width: 700px) { .two { grid-template-columns: 1fr; } }
+.row { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; }
+
+.dropzone {
+  border: 1px dashed var(--edge-hover); border-radius: var(--r-lg);
+  padding: var(--s6); text-align: center; color: var(--text-2); font-size: 14px;
+  cursor: pointer; background: var(--active); transition: all .12s;
+}
+.dropzone:hover, .dropzone.over {
+  border-color: var(--blue); color: var(--text); background: rgba(35,131,226,.08);
+}
+
+/* Notion callout */
+.callout {
+  display: flex; gap: var(--s3); background: var(--hover); border-radius: var(--r-lg);
+  padding: var(--s3) var(--s4); font-size: 14px; color: var(--text-2);
+  line-height: 1.5;
+}
+.callout .ico { font-size: 16px; line-height: 1.45; flex: 0 0 auto; }
+.callout.warn { background: var(--red-bg); color: var(--red); }
+.callout.good { background: var(--green-bg); color: var(--green); }
+.callout b, .callout strong { color: inherit; }
+
+/* result of an ingest */
+.result { display: grid; gap: var(--s3); }
+.result-head { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.result-head h3 { font-size: 15px; font-weight: 600; margin: 0; }
+.mini-list { list-style: none; margin: 0; padding: 0; }
+.mini-list li {
+  display: grid; gap: var(--s1); padding: var(--s3) 0;
+  border-top: 1px solid var(--border);
+}
+.mini-list li:first-child { border-top: 0; padding-top: 0; }
+.mini-list .t { font-size: 14px; font-weight: 500; line-height: 1.4; }
+.mini-list .t.dropped { color: var(--text-3); text-decoration: line-through; }
+.mini-list .m { font-size: 12.5px; color: var(--text-3); }
+.mini-list .q { font-size: 12.5px; color: var(--text-2); font-family: var(--mono); line-height: 1.5; }
+
+/* ---------- table (Sources) ---------- */
+/* A bordered panel: a bare table on a flat ground reads as unstyled. */
+/* ---------- source detail ---------- */
+.source { display: grid; gap: var(--s4); margin-top: var(--s5); max-width: 900px; }
+.meta-row { display: flex; flex-wrap: wrap; gap: var(--s2); }
+.count-pill {
+  font-size: 12px; font-weight: 500; color: var(--text-3);
+  background: var(--gray-chip); border-radius: var(--r-sm); padding: 1px 8px;
+  vertical-align: middle; margin-left: var(--s2);
+  font-variant-numeric: tabular-nums;
+}
+.count-pill.warn { background: var(--red-bg); color: var(--red); }
+
+.panel {
+  background: var(--bg-elevated); border: 1px solid var(--edge);
+  border-radius: var(--r-lg); padding: var(--s4); box-shadow: var(--shadow-sm);
+}
+
+/* The stored bytes, exactly. Scrolls on its own so the page never moves
+   sideways, and wraps so long lines stay readable. */
+.transcript {
+  margin: 0; padding: var(--s4); max-height: 460px; overflow: auto;
+  background: var(--bg-input); border: 1px solid var(--edge);
+  border-radius: var(--r-lg); font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.65; color: var(--text-2);
+  white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2;
+}
+
+.task-list { display: grid; gap: var(--s2); }
+.task-row {
+  display: flex; align-items: flex-start; gap: var(--s3);
+  background: var(--bg-elevated); border: 1px solid var(--edge);
+  border-radius: var(--r-md); padding: var(--s3); box-shadow: var(--shadow-sm);
+  cursor: pointer; transition: border-color .12s, box-shadow .12s, background .12s;
+}
+.task-row:hover {
+  background: var(--bg-elev-hover); border-color: var(--edge-hover);
+  box-shadow: var(--shadow-md);
+}
+.task-row-main { flex: 1; display: grid; gap: var(--s2); min-width: 0; }
+.task-row .t { font-size: 14px; font-weight: 500; line-height: 1.4; }
+.task-row.done .t { color: var(--text-3); text-decoration: line-through; }
+.task-row .props { margin: 0; }
+.task-row > .btn { flex: 0 0 auto; }
+
+/* clickable table rows */
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--hover); }
+.row-title { font-weight: 500; }
+.chev { color: var(--text-3); font-size: 18px; line-height: 1; }
+tr.clickable:hover .chev { color: var(--text); }
+
+/* ---------- segmented toggle ---------- */
+.seg.boxed {
+  display: inline-flex; justify-self: start; gap: 0;
+  border: 1px solid var(--edge);
+  border-radius: var(--r-md); overflow: hidden; background: var(--bg-input);
+}
+.seg.boxed .btn {
+  border: 0; border-radius: 0; min-height: 30px; padding: var(--s1) var(--s3);
+}
+.seg.boxed .btn + .btn { border-left: 1px solid var(--edge); }
+.seg.boxed .btn[aria-pressed="true"] {
+  background: var(--blue); color: #fff; font-weight: 500;
+}
+
+/* ---------- provider picker ---------- */
+.provider-pick { display: grid; gap: var(--s2); grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 760px) { .provider-pick { grid-template-columns: 1fr; } }
+.provider {
+  display: grid; gap: 3px; text-align: left; cursor: pointer;
+  background: var(--bg-input); color: var(--text-2);
+  border: 1px solid var(--edge); border-radius: var(--r-md);
+  padding: var(--s3); font: inherit; transition: all .12s;
+}
+.provider:hover { border-color: var(--edge-hover); color: var(--text); }
+.provider.on {
+  border-color: var(--blue); color: var(--text);
+  box-shadow: 0 0 0 3px rgba(35,131,226,.18);
+  background: rgba(35,131,226,.07);
+}
+.provider-name { font-size: 14px; font-weight: 500; }
+.provider-lock { font-size: 12px; color: var(--text-3); }
+.provider.on .provider-lock { color: var(--text-2); }
+
+.key-row { display: flex; gap: var(--s2); align-items: stretch; }
+.key-row input { font-family: var(--mono); font-size: 13px; }
+.key-row .btn { flex: 0 0 auto; }
+
+/* ---------- editable task panel ---------- */
+.peek-title {
+  width: 100%; font: inherit; font-size: 28px; font-weight: 700;
+  letter-spacing: -.018em; line-height: 1.25; color: var(--text);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-md);
+  padding: var(--s2); margin: 0 0 var(--s4) calc(var(--s2) * -1);
+  resize: none; overflow: hidden; min-height: 0;
+}
+.peek-title:hover { background: var(--hover); }
+.peek-title:focus {
+  outline: none; background: var(--bg-input); border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(35,131,226,.22);
+}
+.owner-v { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.owner-v input { width: auto; flex: 1 1 140px; min-width: 120px; }
+.prop > .v input[type=date] { width: auto; min-width: 150px; }
+.prop > .v { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.evidence.big { margin-left: 0; font-size: 14px; }
+
+td.actions { text-align: right; }
+.pick { color: var(--blue); text-decoration: none; }
+.pick:hover { text-decoration: underline; }
+.loading { margin-top: var(--s6); }
+.table-wrap {
+  overflow-x: auto; margin-top: var(--s6);
+  border: 1px solid var(--edge); border-radius: var(--r-lg);
+  background: var(--bg-elevated); box-shadow: var(--shadow-sm);
+}
+table { min-width: 640px; }
+thead tr { background: var(--active); }
+th:first-child, td:first-child { padding-left: var(--s4); }
+th:last-child,  td:last-child  { padding-right: var(--s4); }
+tbody tr:last-child td { border-bottom: 0; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th {
+  text-align: left; font-size: 12px; font-weight: 500; color: var(--text-3);
+  padding: 0 var(--s4) var(--s2) 0; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+td {
+  padding: var(--s3) var(--s4) var(--s3) 0; border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+th:last-child, td:last-child { padding-right: 0; }
+tr:hover td { background: var(--active); }
+td.num { font-variant-numeric: tabular-nums; }
+.file { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin-top: 2px; }
+.title-cell { display: flex; gap: 8px; align-items: flex-start; }
+
+/* ---------- side peek ---------- */
+#scrim {
+  position: fixed; inset: 0; background: rgba(15,15,15,.6); z-index: 30;
+  opacity: 0; pointer-events: none; transition: opacity .15s;
+}
+#scrim.open { opacity: 1; pointer-events: auto; }
+#peek {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100%);
+  background: var(--bg); z-index: 31; box-shadow: var(--shadow-lg);
+  border-left: 1px solid var(--edge);
+  transform: translateX(100%); transition: transform .2s cubic-bezier(.3,0,.2,1);
+  display: flex; flex-direction: column;
+}
+#peek.open { transform: none; }
+/* Programmatic focus target, not a control: no ring. */
+#peek:focus, #peek:focus-visible { outline: none; }
+.peek-bar {
+  height: 45px; flex: 0 0 45px; display: flex; align-items: center; gap: 4px;
+  padding: 0 10px; border-bottom: 1px solid var(--border);
+}
+.peek-body { overflow-y: auto; padding: var(--s5) var(--s7) 80px; }
+@media (max-width: 620px) { .peek-body { padding: var(--s5) var(--s5) 60px; } }
+.peek-body h2 {
+  font-size: 30px; font-weight: 700; letter-spacing: -.018em; line-height: 1.25;
+  margin: 0 0 var(--s5); text-wrap: balance;
+}
+/* Notion property rows: icon + label at fixed width, value right */
+.prop { display: flex; gap: var(--s3); align-items: flex-start; padding: 3px 0; font-size: 14px; }
+.prop > .k {
+  flex: 0 0 132px; display: flex; align-items: center; gap: var(--s2);
+  color: var(--text-2); font-size: 13px; padding: 4px var(--s2);
+  border-radius: var(--r-sm);
+}
+.prop:hover > .k { background: var(--hover); }
+.prop > .v { flex: 1; padding: 3px 0; min-width: 0; }
+.divider { height: 1px; background: var(--border); margin: 0; }
+/* peek-body is not a grid, so its dividers need their own rhythm */
+.peek-body > .divider { margin: var(--s5) 0; }
+.peek-body > .h3 { margin-bottom: var(--s2); }
+.h3spaced {
+  font-size: 12px; font-weight: 500; color: var(--text-3);
+  margin: var(--s5) 0 var(--s2); line-height: 1.45;
+}
+.peek-body > .prop + .divider { margin-top: var(--s4); }
+.h3 { font-size: 12px; font-weight: 500; color: var(--text-3); margin: 0; line-height: 1.45; }
+
+.timeline { list-style: none; margin: 0; padding: 0; }
+.timeline li { position: relative; padding: 0 0 var(--s5) var(--s5); }
+.timeline li::before {
+  content: ""; position: absolute; left: 3px; top: 7px; width: 7px; height: 7px;
+  border-radius: 50%; background: var(--text-2);
+  box-shadow: 0 0 0 3px var(--bg);
+}
+.timeline li::after {
+  content: ""; position: absolute; left: 6px; top: 18px; bottom: 2px; width: 1px;
+  background: var(--edge-hover);
+}
+.timeline li:last-child { padding-bottom: 0; }
+.timeline li:last-child::after { display: none; }
+.timeline .when { font-size: 13px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.timeline .where { font-size: 12.5px; color: var(--text-3); margin: 1px 0 5px; }
+.timeline .said {
+  font-size: 13.5px; color: var(--text-2); line-height: 1.5;
+  border-left: 3px solid var(--border-strong); padding-left: var(--s3);
+}
+
+/* ---------- toast ---------- */
+#toast {
+  position: fixed; left: 50%; bottom: var(--s5); transform: translate(-50%, 12px);
+  background: var(--bg-elevated); color: var(--text); font-size: 14px;
+  padding: var(--s3) var(--s4); border-radius: var(--r-lg); z-index: 40;
+  border: 1px solid var(--edge);
+  box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none;
+  transition: all .16s; max-width: min(520px, 86vw);
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+::selection { background: rgba(35,131,226,.32); }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--edge); border-radius: 8px;
+  border: 3px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--edge-hover); background-clip: padding-box;
+}
+::-webkit-scrollbar-corner { background: transparent; }
+
+.stale-bar {
+  position: fixed; inset: 0 0 auto 0; z-index: 50;
+  background: var(--red-bg); color: var(--red);
+  border-bottom: 1px solid var(--red); padding: var(--s3) var(--s4);
+  font-size: 13.5px; line-height: 1.5;
+}
+.stale-bar code { background: rgba(0,0,0,.25); padding: 1px 5px; border-radius: var(--r-sm); }
+
+.spin { display: inline-block; animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.muted { color: var(--text-3); font-size: 13px; }
+
+@media (max-width: 760px) {
+  .sidebar { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <aside class="sidebar">
+    <div class="ws">
+      <div class="ws-tile">R</div>
+      <span class="ws-name">Ruger</span>
+      <span class="ws-sub" id="ws-sub"></span>
+    </div>
+
+    <nav>
+      <button class="nav-item" data-view="board" aria-current="page">
+        <span class="ico">📋</span> Board <span class="count" id="c-board"></span>
+      </button>
+      <button class="nav-item" data-view="add">
+        <span class="ico">✏️</span> Add notes
+      </button>
+      <button class="nav-item" data-view="sources">
+        <span class="ico">🗂️</span> Sources <span class="count" id="c-src"></span>
+      </button>
+
+      <div class="nav-label">Workspace</div>
+      <button class="nav-item" data-view="settings">
+        <span class="ico">⚙️</span> Settings
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <button class="nav-item" id="sync"><span class="ico">🔄</span> Sync inbox</button>
+      <button class="nav-item" id="theme"><span class="ico">🌙</span> Appearance</button>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="crumb"><span class="ico" id="crumb-ico">📋</span> <span id="crumb">Board</span></div>
+      <div class="right" id="topbar-right"></div>
+    </div>
+    <div class="scroll">
+      <div class="content">
+        <header class="page-head">
+          <div class="page-icon" id="page-icon">📋</div>
+          <h1 id="page-title">Board</h1>
+          <p class="page-sub" id="page-sub"></p>
+        </header>
+        <div id="root"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="scrim"></div>
+<aside id="peek" aria-hidden="true" aria-label="Commitment detail" tabindex="-1">
+  <div class="peek-bar">
+    <button class="btn" id="peek-close" aria-label="Close">✕</button>
+  </div>
+  <div class="peek-body" id="peek-body"></div>
+</aside>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+const COLUMNS = [
+  { key: "todo",  label: "To do" },
+  { key: "doing", label: "Doing" },
+  { key: "done",  label: "Done"  },
+];
+const TODAY = new Date().toISOString().slice(0, 10);
+const NEEDS_API = "0.3";   // must match server.py's API_VERSION
+
+const PAGES = {
+  board: {
+    icon: "📋", title: "Board",
+    sub: "Commitments people made out loud. Yours are purple, other people’s are green. Every card carries the line that produced it.",
+  },
+  add: {
+    icon: "✏️", title: "Add notes",
+    sub: "Paste a meeting or drop files. Every note is saved to your inbox as markdown before it’s read, so the board can always be rebuilt from them.",
+  },
+  sources: {
+    icon: "🗂️", title: "Sources",
+    sub: "Everything stored, and what each meeting produced.",
+  },
+  settings: {
+    icon: "⚙️", title: "Settings",
+    sub: "Which model reads your meetings, and who it thinks you are.",
+  },
+  source: {
+    icon: "📄", title: "Source",
+    sub: "The note exactly as stored, and everything read out of it.",
+  },
+};
+
+let TASKS = [];
+let NOTES = [];
+let CONFIG = null;
+let SOURCE = null;        // the open source's transcript, tasks and drops
+let peekId = null;        // task open in the side panel
+let view = "board";
+let group = "none";
+let filter = "all";
+let fresh = new Set();
+let loadError = null;
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+function toast(msg, ms = 3400) {
+  const el = $("#toast");
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.classList.remove("show"), ms);
+}
+
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso + (iso.length === 10 ? "T00:00:00" : ""));
+  if (isNaN(d)) return iso;
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+/* ---------- api ----------
+   Mutations carry X-Ruger so a cross-origin page cannot drive this server:
+   a custom header forces a CORS preflight, which the server never approves. */
+async function api(method, path, body) {
+  const opts = { method, headers: {} };
+  if (method !== "GET") opts.headers["X-Ruger"] = "1";
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  const res = await fetch(path, opts);
+  let payload = null;
+  try { payload = await res.json(); } catch {}
+  if (!res.ok) throw new Error((payload && payload.error) || `${method} ${path} -> ${res.status}`);
+  return payload;
+}
+
+const loadTasks  = async () => { TASKS = (await api("GET", "/api/tasks")).tasks || []; };
+const loadNotes  = async () => { NOTES = (await api("GET", "/api/notes")).notes || []; };
+const loadConfig = async () => { CONFIG = await api("GET", "/api/config"); };
+const loadSource = async (id) => { SOURCE = await api("GET", `/api/notes/${id}`); };
+
+/* ---------- board ---------- */
+
+async function move(id, status) {
+  const task = TASKS.find((t) => t.id === id);
+  if (!task || task.status === status) return;
+  const previous = task.status;
+  task.status = status; task._pending = true;
+  render();
+  try {
+    const updated = await api("PATCH", `/api/tasks/${id}`, { status });
+    Object.assign(task, updated.task || {}, { _pending: false });
+  } catch (err) {
+    task.status = previous; task._pending = false;
+    toast(`Couldn’t save that move: ${err.message}`);
+  }
+  render();
+}
+
+const visible = () => TASKS.filter((t) => filter === "all" || t.direction === filter);
+
+/** Grouping only changes the lanes — all three views share one renderer (D7). */
+function lanes(tasks) {
+  if (group === "none") return [{ key: "all", label: null, tasks }];
+  const keyOf = (t) => group === "meeting"
+    ? (t.meeting || "Untitled meeting")
+    : (t.direction === "mine" ? "Me" : (t.owner || "Unassigned"));
+  const buckets = new Map();
+  for (const t of tasks) {
+    const k = keyOf(t);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(t);
+  }
+  return [...buckets.entries()].sort((a, b) => {
+    if (group === "meeting") {
+      const da = a[1][0].meeting_date || "", db_ = b[1][0].meeting_date || "";
+      if (da !== db_) return db_.localeCompare(da);
+    }
+    if (a[0] === "Me") return -1;
+    if (b[0] === "Me") return 1;
+    return a[0].localeCompare(b[0]);
+  }).map(([label, ts]) => ({ key: label, label, tasks: ts }));
+}
+
+function cardHTML(t) {
+  const overdue = t.due_date && t.due_date < TODAY && t.status !== "done";
+  const repeat = t.mention_count > 1;
+  return `
+  <article class="card ${t.status === "done" ? "done" : ""} ${t._pending ? "pending" : ""} ${fresh.has(t.id) ? "fresh" : ""}"
+           draggable="true" data-id="${t.id}" tabindex="0" aria-label="${esc(t.task)}">
+    <div class="card-top">
+      <input type="checkbox" class="check" ${t.status === "done" ? "checked" : ""}
+             aria-label="Mark done" data-check="${t.id}">
+      <div class="title">${esc(t.task)}</div>
+    </div>
+    <div class="props">
+      <span class="chip person ${t.direction === "theirs" ? "theirs" : ""}">${t.direction === "mine" ? "Me" : esc(t.owner)}</span>
+      ${t.due_date ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(t.due_date)}</span>` : ""}
+      ${repeat ? `<span class="chip repeat" title="Raised in ${t.mention_count} meetings">${t.mention_count}× raised</span>` : ""}
+    </div>
+    <blockquote class="evidence">${esc(t.quote)}
+      <span class="src">${[t.speaker, t.meeting].filter(Boolean).map(esc).join(" · ")}</span>
+    </blockquote>
+  </article>`;
+}
+
+const columnHTML = (lane, col) => {
+  const tasks = lane.tasks.filter((t) => t.status === col.key);
+  return `
+  <section class="col">
+    <div class="col-head">
+      <span class="status" data-s="${col.key}"><span class="dot"></span>${col.label}</span>
+      <span class="n">${tasks.length}</span>
+    </div>
+    <div class="drop" data-status="${col.key}">
+      ${tasks.length ? tasks.map(cardHTML).join("")
+                     : `<div class="empty-col">Drop a card here</div>`}
+    </div>
+  </section>`;
+};
+
+function boardHTML() {
+  if (!TASKS.length) {
+    return `
+    <div class="blank">
+      <h2>Nothing promised yet</h2>
+      <p>Add a meeting and Ruger pulls out what people committed to. Anything it
+         can’t back up with a quote from your notes gets dropped.</p>
+      <div class="row">
+        <button class="btn primary" data-goto="add">Add a meeting note</button>
+        <button class="btn outline" id="sync2">Sync inbox</button>
+      </div>
+    </div>`;
+  }
+  const tabs = [["all", "All"], ["mine", "Mine"], ["theirs", "Theirs"]];
+  const groups = [["none", "None"], ["meeting", "Meeting"], ["owner", "Person"]];
+  return `
+    <div class="viewbar">
+      ${tabs.map(([k, l]) => `<button class="tab" data-filter="${k}" aria-pressed="${filter === k}">${l}</button>`).join("")}
+      <div class="right">
+        <span class="lbl">Group by</span>
+        <span class="seg">${groups.map(([k, l]) =>
+          `<button class="btn" data-group="${k}" aria-pressed="${group === k}">${l}</button>`).join("")}</span>
+      </div>
+    </div>
+    <div class="board">
+      ${lanes(visible()).map((lane) => `
+        <div class="lane">
+          ${lane.label ? `<h2 class="lane-head">${esc(lane.label)}<span class="n">${lane.tasks.length}</span></h2>` : ""}
+          <div class="cols">${COLUMNS.map((c) => columnHTML(lane, c)).join("")}</div>
+        </div>`).join("")}
+    </div>`;
+}
+
+/* ---------- add notes ---------- */
+
+let lastResult = null;
+
+function resultHTML(r) {
+  if (!r) return "";
+  const drops = (r.episodes || []).flatMap((e) => e.drops || []);
+  const made = TASKS.filter((t) => (r.commitment_ids || []).includes(t.id));
+  const bad = (r.errors || []).length > 0;
+  return `
+  <div class="result">
+    <div class="divider"></div>
+    <div class="result-head">
+      <h3>${bad ? "Couldn't read that one" : `${r.created} actionable${r.created === 1 ? "" : "s"} found`}</h3>
+      ${r.merged ? `<span class="chip">${r.merged} merged into existing</span>` : ""}
+      ${r.dropped ? `<span class="chip date overdue">${r.dropped} dropped</span>` : ""}
+      ${(r.usage || []).map((u) => `<span class="chip">${u.input_tokens}→${u.output_tokens} tokens</span>`).join("")}
+    </div>
+    ${(r.errors || []).map((e) => `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(e)}</div></div>`).join("")}
+    ${(r.problems || []).map((p) => `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(p)}</div></div>`).join("")}
+    ${made.length ? `<ul class="mini-list">${made.map((t) => `
+      <li>
+        <div class="t">${esc(t.task)}</div>
+        <div class="m">${t.direction === "mine" ? "Me" : esc(t.owner)}${t.due_date ? " · due " + esc(t.due_date) : ""}</div>
+        <div class="q">“${esc(t.quote)}”</div>
+      </li>`).join("")}</ul>` : ""}
+    ${drops.length ? `
+      <p class="h3">Dropped for lack of evidence. The quote wasn’t in your notes, so these never reached the board.</p>
+      <ul class="mini-list">${drops.map((d) => `
+        <li>
+          <div class="t dropped">${esc(d.task || "(no task)")}</div>
+          <div class="m">${esc(d.reason)}${d.quote ? ` · “${esc(String(d.quote).slice(0, 110))}”` : ""}</div>
+        </li>`).join("")}</ul>` : ""}
+    ${r.created ? `<div class="row">
+      <button class="btn primary" data-goto="board">See them on the board</button></div>` : ""}
+  </div>`;
+}
+
+const addHTML = () => `
+  <div class="form">
+    <div class="fieldset">
+      <div class="field">
+        <label for="n-body">Notes or transcript</label>
+        <textarea id="n-body" placeholder="Alex: I'll audit the team LinkedIn profiles by Friday.&#10;Maya: I'll send you the Beacon login today."></textarea>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label for="n-title">Title</label>
+          <input type="text" id="n-title" placeholder="Weekly with Maya">
+          <p class="desc">Taken from the notes if you leave this blank.</p>
+        </div>
+        <div class="field">
+          <label for="n-date">Meeting date</label>
+          <input type="date" id="n-date" value="${TODAY}">
+          <p class="desc">Dates like “by Friday” resolve against this.</p>
+        </div>
+      </div>
+      <div class="field">
+        <label for="n-people">Participants</label>
+        <input type="text" id="n-people" placeholder="Alex, Maya (optional)">
+      </div>
+      <div class="row">
+        <button class="btn primary" id="n-save">Store and extract</button>
+        <span class="muted" id="n-status"></span>
+      </div>
+    </div>
+
+    <div class="fieldset">
+      <h2 class="section-title">Or drop files</h2>
+      <p class="muted">Markdown or text exports. Frontmatter is used when it’s there.</p>
+      <div class="dropzone" id="dz">
+        Drop <code>.md</code> files here, or click to choose
+        <input type="file" id="file-input" multiple accept=".md,.markdown,.txt,text/*" hidden>
+      </div>
+    </div>
+
+    ${resultHTML(lastResult)}
+  </div>`;
+
+async function submitNote() {
+  const body = $("#n-body").value.trim();
+  if (!body) { toast("Paste the notes first."); $("#n-body").focus(); return; }
+  const btn = $("#n-save");
+  btn.disabled = true; btn.textContent = "Extracting…";
+  $("#n-status").innerHTML = `<span class="spin">◐</span> One model call. This can take a minute.`;
+  try {
+    const people = $("#n-people").value.split(",").map((s) => s.trim()).filter(Boolean);
+    const r = await api("POST", "/api/notes", {
+      title: $("#n-title").value, date: $("#n-date").value, participants: people, body,
+    });
+    TASKS = r.tasks || TASKS;
+    fresh = new Set(r.commitment_ids || []);
+    lastResult = r;
+    render();
+    toast(`${r.created} actionable${r.created === 1 ? "" : "s"} found`);
+  } catch (err) {
+    lastResult = { saved: [], created: 0, merged: 0, dropped: 0, errors: [err.message] };
+    render();
+    toast(`Failed: ${err.message}`, 7000);
+  }
+}
+
+async function submitFiles(fileList) {
+  const files = [...fileList].slice(0, 50);
+  if (!files.length) return;
+  const dz = $("#dz");
+  if (dz) dz.textContent = `Reading ${files.length} file(s)…`;
+  const payload = [];
+  for (const f of files) payload.push({ filename: f.name, content: await f.text() });
+  if (dz) dz.innerHTML = `<span class="spin">◐</span> Extracting from ${files.length} file(s)…`;
+  try {
+    const r = await api("POST", "/api/uploads", { files: payload });
+    TASKS = r.tasks || TASKS;
+    fresh = new Set(r.commitment_ids || []);
+    lastResult = r;
+    render();
+    toast(`${r.created} actionable${r.created === 1 ? "" : "s"} from ${files.length} file(s)`);
+  } catch (err) {
+    lastResult = { saved: [], created: 0, merged: 0, dropped: 0, errors: [err.message] };
+    render();
+    toast(`Failed: ${err.message}`, 7000);
+  }
+}
+
+/* ---------- sources ---------- */
+
+const sourcesHTML = () => !NOTES.length
+  ? `<div class="blank"><h2>No notes stored</h2>
+       <p>Meetings you add show up here, with the transcript and every task read
+          out of it.</p>
+       <div class="row"><button class="btn primary" data-goto="add">Add a meeting note</button></div></div>`
+  : `<div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Meeting</th><th>Date</th><th>Tasks</th><th>Dropped</th><th>Read by</th><th></th>
+        </tr></thead>
+        <tbody>${NOTES.map((n) => `
+          <tr class="clickable" data-source="${n.id}" tabindex="0">
+            <td><div class="title-cell"><span>📄</span><div>
+              <div class="row-title">${esc(n.title || "Untitled")}</div>
+              <div class="file">${esc((n.raw_path || "").split("/").pop() || "")}${n.chars ? ` · ${n.chars.toLocaleString()} chars` : ""}</div>
+            </div></div></td>
+            <td class="num">${esc(n.started_at)}</td>
+            <td class="num">${n.commitments}</td>
+            <td class="num">${n.drops ? `<span class="chip date overdue">${n.drops}</span>` : `<span class="muted">0</span>`}</td>
+            <td>${n.extracted_at ? `<span class="chip">${esc(String(n.extraction_model || ""))}</span>` : `<span class="muted">not yet</span>`}</td>
+            <td class="actions"><span class="chev">›</span></td>
+          </tr>`).join("")}</tbody>
+      </table>
+    </div>`;
+
+/* ---------- one source ---------- */
+
+function sourceHTML() {
+  if (loadError) return `
+    <div class="blank">
+      <h2>Couldn't load this source</h2>
+      <p>${esc(loadError)}</p>
+      <div class="row"><button class="btn outline" data-goto="sources">Back to sources</button></div>
+    </div>`;
+  if (!SOURCE) return `<p class="muted loading">Loading…</p>`;
+  const n = SOURCE.note;
+  const tasks = SOURCE.tasks || [];
+  const drops = SOURCE.drops || [];
+  const people = (n.participants || []).join(", ");
+
+  return `
+  <div class="source">
+    <div class="meta-row">
+      <span class="chip">${esc(n.started_at)}</span>
+      ${people ? `<span class="chip">${esc(people)}</span>` : ""}
+      <span class="chip">${(n.transcript || "").length.toLocaleString()} chars</span>
+      ${n.extracted_at ? `<span class="chip">read by ${esc(String(n.extraction_model || ""))}</span>`
+                       : `<span class="chip date overdue">not read yet</span>`}
+    </div>
+
+    <div class="row">
+      <button class="btn primary" id="src-refresh" data-id="${n.id}">Refresh tasks</button>
+      <button class="btn outline" id="src-add" data-id="${n.id}">Add a task</button>
+      <button class="btn danger" data-del="${n.id}">Remove note</button>
+      <span class="muted" id="src-status"></span>
+    </div>
+    <p class="desc">Refreshing runs the model over this note again. Tasks you edited
+       keep their wording, tasks you added by hand are left alone, and anything new
+       is added.</p>
+
+    <div id="src-form"></div>
+
+    <h2 class="section-title">Tasks from this meeting <span class="count-pill">${tasks.length}</span></h2>
+    ${tasks.length ? `<div class="task-list">${tasks.map(taskRowHTML).join("")}</div>`
+                   : `<p class="muted">No tasks yet. Refresh to read the note again, or add one by hand.</p>`}
+
+    ${drops.length ? `
+      <h2 class="section-title">Dropped <span class="count-pill warn">${drops.length}</span></h2>
+      <p class="desc">The model returned these, but their quote was not found in the
+         note, so they never reached the board.</p>
+      <ul class="mini-list">${drops.map((d) => `
+        <li>
+          <div class="t dropped">${esc(d.task || "(no task)")}</div>
+          <div class="m">${esc(d.reason)}${d.quote ? ` · “${esc(String(d.quote).slice(0, 140))}”` : ""}</div>
+        </li>`).join("")}</ul>` : ""}
+
+    <h2 class="section-title">Transcript</h2>
+    <p class="desc">Exactly as stored in
+       <code>${esc((n.raw_path || "").split("/").pop() || "your inbox")}</code>.
+       Quotes are checked against these characters.</p>
+    <pre class="transcript">${esc(n.transcript || "")}</pre>
+  </div>`;
+}
+
+function taskRowHTML(t) {
+  const overdue = t.due_date && t.due_date < TODAY && t.status !== "done";
+  const label = { todo: "To do", doing: "Doing", done: "Done" }[t.status];
+  return `
+  <div class="task-row ${t.status === "done" ? "done" : ""}" data-id="${t.id}" tabindex="0">
+    <input type="checkbox" class="check" ${t.status === "done" ? "checked" : ""}
+           aria-label="Mark done" data-check="${t.id}">
+    <div class="task-row-main">
+      <div class="t">${esc(t.task)}</div>
+      <div class="props">
+        <span class="chip person ${t.direction === "theirs" ? "theirs" : ""}">${t.direction === "mine" ? "Me" : esc(t.owner)}</span>
+        <span class="chip">${label}</span>
+        ${t.due_date ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(t.due_date)}</span>` : ""}
+        ${t.mention_count > 1 ? `<span class="chip repeat">${t.mention_count}× raised</span>` : ""}
+        ${t.origin === "manual" ? `<span class="chip">added by hand</span>`
+                                : t.edited ? `<span class="chip">edited</span>` : ""}
+      </div>
+    </div>
+    <button class="btn" data-open-task="${t.id}" title="Open">Open</button>
+    <button class="btn danger" data-del-task="${t.id}" title="Delete task">Delete</button>
+  </div>`;
+}
+
+const addTaskFormHTML = (episodeId) => `
+  <div class="panel">
+    <div class="fieldset">
+      <div class="field">
+        <label for="t-task">Task</label>
+        <input type="text" id="t-task" placeholder="Send Maya the revised deck" autofocus>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label for="t-dir">Who owns it</label>
+          <div class="seg boxed" id="t-dir">
+            <button class="btn" data-dir="mine" aria-pressed="true">Me</button>
+            <button class="btn" data-dir="theirs" aria-pressed="false">Someone else</button>
+          </div>
+        </div>
+        <div class="field" id="t-owner-field" hidden>
+          <label for="t-owner">Their name</label>
+          <input type="text" id="t-owner" placeholder="Maya">
+        </div>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label for="t-due">Due date</label>
+          <input type="date" id="t-due">
+        </div>
+        <div class="field">
+          <label for="t-status">Status</label>
+          <select id="t-status">
+            <option value="todo">To do</option>
+            <option value="doing">Doing</option>
+            <option value="done">Done</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="t-save" data-id="${episodeId}">Add task</button>
+        <button class="btn" id="t-cancel">Cancel</button>
+      </div>
+      <p class="desc">A task you add has no quote, because nobody said it. Its card
+         says so instead of showing empty evidence.</p>
+    </div>
+  </div>`;
+
+/* ---------- settings ---------- */
+
+function settingsHTML() {
+  if (!CONFIG) return `<p class="muted loading">Loading…</p>`;
+  const presets = CONFIG.presets || {};
+  const p = presets[CONFIG.provider] || {};
+  const locked = CONFIG.env_overrides || [];
+  return `
+  <div class="form">
+    ${locked.length ? `<div class="callout warn"><span class="ico">⚠️</span><div>
+      <b>${locked.map(esc).join(", ")}</b> ${locked.length === 1 ? "is" : "are"} set as a real
+      environment variable, which overrides this page. Unset ${locked.length === 1 ? "it" : "them"}
+      for changes here to take effect.</div></div>` : ""}
+
+    <div class="fieldset">
+      <h2 class="section-title">Model</h2>
+
+      <div class="field">
+        <label>Provider</label>
+        <div class="provider-pick" id="s-provider" data-value="${esc(CONFIG.provider)}">
+          ${Object.entries(presets).map(([k, v]) => `
+            <button class="provider ${k === CONFIG.provider ? "on" : ""}" data-provider="${k}"
+                    aria-pressed="${k === CONFIG.provider}">
+              <span class="provider-name">${esc(v.label)}</span>
+              <span class="provider-lock">${v.schema_enforced ? "🔒 schema enforced" : "🔓 schema not enforced"}</span>
+            </button>`).join("")}
+        </div>
+      </div>
+      ${p.note ? `<div class="callout"><span class="ico">${p.schema_enforced ? "🔒" : "🔓"}</span><div>${esc(p.note)}</div></div>` : ""}
+
+      <div class="field">
+        <label for="s-key">API key</label>
+        <div class="key-row">
+          <input type="${CONFIG.api_key ? "text" : "password"}" id="s-key"
+                 autocomplete="off" spellcheck="false"
+                 value="${esc(CONFIG.api_key || "")}"
+                 placeholder="${CONFIG.api_key_set ? esc(CONFIG.api_key_masked) : "paste your key"}">
+          <button class="btn outline" id="s-reveal" type="button">
+            ${CONFIG.api_key ? "Hide" : "Show"}</button>
+        </div>
+        <p class="desc">${CONFIG.api_key_set && !CONFIG.api_key
+          ? "A key is stored. Press Show to read or change it, or leave this blank to keep it. "
+          : ""}${esc(p.key_hint || "")}</p>
+      </div>
+
+      <div class="two">
+        <div class="field">
+          <label for="s-model">Model</label>
+          <input type="text" id="s-model" value="${esc(CONFIG.model)}" list="model-list"
+                 placeholder="${esc(p.default_model || "model id")}">
+          <datalist id="model-list">${(p.models || []).map((m) => `<option value="${esc(m)}">`).join("")}</datalist>
+        </div>
+        <div class="field">
+          <label for="s-base">Base URL</label>
+          <input type="text" id="s-base" value="${esc(CONFIG.base_url)}"
+                 placeholder="${esc(p.base_url || "provider default")}">
+          <p class="desc">Leave blank for the provider default.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="fieldset">
+      <h2 class="section-title">You</h2>
+      <div class="two">
+        <div class="field">
+          <label for="s-me">Your name(s)</label>
+          <input type="text" id="s-me" value="${esc(CONFIG.me)}" placeholder="Alex, Alex Rao">
+          <p class="desc">As they appear in your notes.</p>
+        </div>
+        <div class="field">
+          <label for="s-ctx">Context limit</label>
+          <input type="text" id="s-ctx" value="${esc(CONFIG.context_length)}" placeholder="32768 (optional)">
+          <p class="desc">Optional. Refuses over-long notes before spending a call.</p>
+        </div>
+      </div>
+      <div class="callout"><span class="ico">💡</span><div>
+        Getting your name wrong is the easiest mistake to make: every promise <i>you</i>
+        made would be filed as one made <i>to</i> you.</div></div>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" id="s-save">Save</button>
+      <button class="btn outline" id="s-test">Test connection</button>
+      <button class="btn outline" id="s-models">Browse models</button>
+      <span class="muted" id="s-status"></span>
+    </div>
+    <div id="s-result"></div>
+
+    <div class="divider"></div>
+    <p class="desc">
+      Saved to <code>${esc(CONFIG.env_file)}</code>, readable only by you.
+      Your key is never sent anywhere but the provider you pick.</p>
+  </div>`;
+}
+
+async function saveSettings() {
+  const btn = $("#s-save"); btn.disabled = true;
+  try {
+    const payload = {
+      provider: $("#s-provider").dataset.value,
+      base_url: $("#s-base").value.trim(),
+      model: $("#s-model").value.trim(),
+      me: $("#s-me").value.trim(),
+      context_length: $("#s-ctx").value.trim(),
+    };
+    const key = $("#s-key").value.trim();
+    if (key) payload.api_key = key;
+    const r = await api("PUT", "/api/config", payload);
+    if (!r.ok) {
+      $("#s-result").innerHTML = (r.errors || [])
+        .map((e) => `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(e)}</div></div>`).join("");
+      return;
+    }
+    CONFIG = { ...r.settings, api_key: key || CONFIG.api_key || "" };
+    render();
+    toast("Settings saved");
+  } catch (err) {
+    toast(`Couldn’t save: ${err.message}`, 6000);
+  } finally { const b = $("#s-save"); if (b) b.disabled = false; }
+}
+
+async function testSettings() {
+  const btn = $("#s-test"); btn.disabled = true;
+  $("#s-status").innerHTML = `<span class="spin">◐</span> calling the model…`;
+  try {
+    const r = await api("POST", "/api/config/test");
+    $("#s-result").innerHTML = r.ok
+      ? `<div class="callout good"><span class="ico">✓</span><div>Working. ${esc(r.provider)}
+         · ${esc(r.structured_mode)} · ${esc(r.tokens)}${r.shape_ok ? "" : " · <b>but it ignored the requested shape</b>"}</div></div>`
+      : `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(r.error)}</div></div>`;
+  } catch (err) {
+    $("#s-result").innerHTML = `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(err.message)}</div></div>`;
+  } finally { $("#s-status").textContent = ""; const b = $("#s-test"); if (b) b.disabled = false; }
+}
+
+async function revealKey() {
+  const field = $("#s-key");
+  if (CONFIG.api_key) {          // already shown: hide it again
+    CONFIG = { ...CONFIG, api_key: "" };
+    render();
+    return;
+  }
+  try {
+    const r = await api("POST", "/api/config/reveal");
+    CONFIG = { ...CONFIG, api_key: r.api_key || "" };
+    render();
+    const f = $("#s-key");
+    if (f) { f.type = "text"; f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
+    if (!r.api_key) toast("No key is stored for this provider yet.");
+  } catch (err) {
+    toast(err.message, 6000);
+    if (field) field.focus();
+  }
+}
+
+async function browseModels() {
+  const q = $("#s-model").value.trim();
+  $("#s-status").innerHTML = `<span class="spin">◐</span> listing…`;
+  try {
+    const r = await api("GET", `/api/config/models?q=${encodeURIComponent(q)}`);
+    $("#s-result").innerHTML = r.error
+      ? `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(r.error)}</div></div>`
+      : `<div class="callout"><span class="ico">🔎</span><div>${r.matched ?? r.models.length} of ${r.total}
+           match${q ? ` “${esc(q)}”` : ""}. Pick one to fill the field.</div></div>
+         <ul class="mini-list">${r.models.slice(0, 40).map((m) =>
+            `<li><a href="#" class="pick" data-pick="${esc(m)}">${esc(m)}</a></li>`).join("")}</ul>`;
+  } catch (err) {
+    $("#s-result").innerHTML = `<div class="callout warn"><span class="ico">⚠️</span><div>${esc(err.message)}</div></div>`;
+  } finally { $("#s-status").textContent = ""; }
+}
+
+/* ---------- render ---------- */
+
+function render() {
+  const page = PAGES[view];
+  const isSource = view === "source" && SOURCE;
+  $("#page-icon").textContent = page.icon;
+  $("#page-title").textContent = isSource ? (SOURCE.note.title || "Untitled") : page.title;
+  $("#page-sub").textContent = isSource ? page.sub : page.sub;
+  $("#crumb").innerHTML = isSource
+    ? `<a href="#" class="pick" data-goto="sources">Sources</a>
+       <span class="crumb-sep">/</span> ${esc(SOURCE.note.title || "Untitled")}`
+    : esc(page.title);
+  $("#crumb-ico").textContent = page.icon;
+
+  const navView = view === "source" ? "sources" : view;
+  document.querySelectorAll(".nav-item[data-view]").forEach((b) => {
+    if (b.dataset.view === navView) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  });
+
+  $("#root").innerHTML =
+    view === "board"    ? boardHTML()   :
+    view === "add"      ? addHTML()     :
+    view === "sources"  ? sourcesHTML() :
+    view === "source"   ? sourceHTML()  : settingsHTML();
+
+  const open = TASKS.filter((t) => t.status !== "done").length;
+  const overdue = TASKS.filter((t) => t.due_date && t.due_date < TODAY && t.status !== "done").length;
+  $("#c-board").textContent = TASKS.length ? open : "";
+  $("#c-src").textContent = NOTES.length || "";
+  $("#ws-sub").textContent = overdue ? `${overdue} overdue` : "";
+
+  $("#topbar-right").innerHTML = view === "board" && TASKS.length
+    ? `<span class="muted">${open} open</span>`
+    : "";
+
+  if (fresh.size) setTimeout(() => { fresh.clear(); }, 1300);
+}
+
+async function goto(next, arg) {
+  if (next !== "source") SOURCE = null;
+  loadError = null;
+  view = next;
+  render();
+  document.querySelector(".scroll").scrollTop = 0;
+  try {
+    if (next === "sources") { await loadNotes(); render(); }
+    if (next === "settings") { await loadConfig(); render(); }
+    if (next === "source")  { await loadSource(arg); render(); }
+  } catch (err) {
+    loadError = err.message;
+    render();
+    toast(err.message, 7000);
+  }
+}
+
+async function refreshSource(id, btn) {
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = "Reading…";
+  $("#src-status").innerHTML = `<span class="spin">◐</span> one model call, this can take a minute`;
+  try {
+    const r = await api("POST", `/api/notes/${id}/reextract`);
+    SOURCE = r.detail;
+    await loadTasks();
+    render();
+    const bits = [];
+    if (r.created)   bits.push(`${r.created} new`);
+    if (r.updated)   bits.push(`${r.updated} updated`);
+    if (r.merged)    bits.push(`${r.merged} merged elsewhere`);
+    if (r.protected) bits.push(`${r.protected} kept as you edited them`);
+    if (r.unmatched) bits.push(`${r.unmatched} no longer found but kept`);
+    if (r.dropped)   bits.push(`${r.dropped} dropped`);
+    toast(bits.length ? bits.join(" · ") : "Nothing changed");
+  } catch (err) {
+    toast(`Refresh failed: ${err.message}`, 7000);
+  } finally {
+    const b = $("#src-refresh");
+    if (b) { b.disabled = false; b.textContent = original; }
+    if ($("#src-status")) $("#src-status").textContent = "";
+  }
+}
+
+async function submitTask(episodeId) {
+  const dir = $("#t-dir").querySelector('[aria-pressed="true"]').dataset.dir;
+  const payload = {
+    episode_id: Number(episodeId),
+    task: $("#t-task").value,
+    direction: dir,
+    owner: dir === "theirs" ? $("#t-owner").value : "me",
+    due_date: $("#t-due").value,
+    status: $("#t-status").value,
+  };
+  if (!payload.task.trim()) { toast("Write the task first."); $("#t-task").focus(); return; }
+  if (dir === "theirs" && !payload.owner.trim()) { toast("Name who owns it."); return; }
+  try {
+    await api("POST", "/api/tasks", payload);
+    await Promise.all([loadTasks(), loadSource(episodeId)]);
+    render();
+    toast("Task added");
+  } catch (err) { toast(err.message, 6000); }
+}
+
+/* ---------- side peek ---------- */
+
+function openPeek(id) {
+  const t = TASKS.find((x) => x.id === id) || (SOURCE?.tasks || []).find((x) => x.id === id);
+  if (!t) return;
+  peekId = id;
+  renderPeek(t);
+  $("#peek").classList.add("open");
+  $("#peek").setAttribute("aria-hidden", "false");
+  $("#scrim").classList.add("open");
+  $("#peek").focus();   // the dialog, not the close button
+}
+
+/** Every control writes straight through to the server; there is no Save. */
+function renderPeek(t) {
+  const hist = (t.history && t.history.length) ? t.history
+    : (t.origin === "manual" ? [] : [{ occurred_at: t.meeting_date, meeting: t.meeting,
+                                       quote: t.quote, speaker: t.speaker }]);
+  const overdue = t.due_date && t.due_date < TODAY && t.status !== "done";
+
+  $("#peek-body").innerHTML = `
+    <textarea id="pk-task" class="peek-title" rows="1"
+              aria-label="Task">${esc(t.task)}</textarea>
+
+    <div class="prop">
+      <div class="k">🏷️ Status</div>
+      <div class="v"><span class="seg boxed" id="pk-status">
+        ${COLUMNS.map((c) => `<button class="btn" data-status="${c.key}"
+            aria-pressed="${t.status === c.key}">${c.label}</button>`).join("")}
+      </span></div>
+    </div>
+
+    <div class="prop">
+      <div class="k">👤 Owner</div>
+      <div class="v owner-v">
+        <span class="seg boxed" id="pk-dir">
+          <button class="btn" data-dir="mine"   aria-pressed="${t.direction === "mine"}">Me</button>
+          <button class="btn" data-dir="theirs" aria-pressed="${t.direction === "theirs"}">Someone else</button>
+        </span>
+        ${t.direction === "theirs"
+          ? `<input type="text" id="pk-owner" value="${esc(t.owner)}" placeholder="Their name">`
+          : ""}
+      </div>
+    </div>
+
+    <div class="prop">
+      <div class="k">📅 Due</div>
+      <div class="v">
+        <input type="date" id="pk-due" value="${esc(t.due_date || "")}">
+        ${overdue ? `<span class="chip date overdue">Overdue</span>` : ""}
+      </div>
+    </div>
+
+    <div class="prop">
+      <div class="k">📄 From</div>
+      <div class="v">
+        <a href="#" class="pick" data-source="${t.episode_id}">${esc(t.meeting || "Untitled")}</a>
+        <span class="muted">${esc(t.meeting_date || "")}</span>
+      </div>
+    </div>
+
+    <div class="prop">
+      <div class="k">🔁 Raised</div>
+      <div class="v">${t.mention_count > 1
+        ? `<span class="chip repeat">${t.mention_count}× raised</span>`
+        : `<span class="muted">Once</span>`}</div>
+    </div>
+
+    <div class="divider"></div>
+
+    ${t.origin === "manual"
+      ? `<div class="callout"><span class="ico">✍️</span><div>You added this by hand,
+           so it has no quote. Everything the model extracts carries the line that
+           produced it.</div></div>`
+      : `<p class="h3">Evidence</p>
+         <blockquote class="evidence big">${esc(t.quote)}
+           <span class="src">${[t.speaker, t.meeting].filter(Boolean).map(esc).join(" · ")}</span>
+         </blockquote>`}
+
+    ${hist.length > 1 ? `
+      <p class="h3spaced">Every time it came up</p>
+      <ul class="timeline">
+        ${hist.map((h) => `<li>
+          <div class="when">${fmtDate(h.occurred_at)}</div>
+          <div class="where">${[h.meeting, h.speaker].filter(Boolean).map(esc).join(" · ") || "Unknown meeting"}</div>
+          <div class="said">${esc(h.quote)}</div>
+        </li>`).join("")}
+      </ul>` : ""}
+
+    <div class="divider"></div>
+    <div class="row">
+      <button class="btn danger" id="pk-delete" data-id="${t.id}">Delete this task</button>
+      <span class="muted" id="pk-status-msg"></span>
+    </div>`;
+
+  const ta = $("#pk-task");
+  if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
+}
+
+/** PATCH one or more fields, then refresh whatever view is showing. */
+async function patchTask(id, fields) {
+  const msg = $("#pk-status-msg");
+  if (msg) msg.textContent = "Saving…";
+  try {
+    const r = await api("PATCH", `/api/tasks/${id}`, fields);
+    const updated = r.task;
+    const i = TASKS.findIndex((x) => x.id === id);
+    if (i >= 0 && updated) TASKS[i] = updated;
+    if (SOURCE) {
+      const j = (SOURCE.tasks || []).findIndex((x) => x.id === id);
+      if (j >= 0 && updated) SOURCE.tasks[j] = updated;
+    }
+    render();
+    if (peekId === id && updated) renderPeek(updated);
+    const m = $("#pk-status-msg");
+    if (m) { m.textContent = "Saved"; setTimeout(() => { if ($("#pk-status-msg")) $("#pk-status-msg").textContent = ""; }, 1400); }
+  } catch (err) {
+    toast(`Couldn't save: ${err.message}`, 6000);
+    const m = $("#pk-status-msg");
+    if (m) m.textContent = "";
+  }
+}
+
+async function deleteTask(id) {
+  const t = TASKS.find((x) => x.id === id) || (SOURCE?.tasks || []).find((x) => x.id === id);
+  if (!confirm(`Delete “${t ? t.task : "this task"}”?\n\nThis removes it from the board for good.`)) return;
+  try {
+    await api("DELETE", `/api/tasks/${id}`);
+    closePeek();
+    await loadTasks();
+    if (SOURCE) await loadSource(SOURCE.note.id);
+    render();
+    toast("Task deleted");
+  } catch (err) { toast(err.message, 6000); }
+}
+
+function closePeek() {
+  peekId = null;
+  $("#peek").classList.remove("open");
+  $("#peek").setAttribute("aria-hidden", "true");
+  $("#scrim").classList.remove("open");
+}
+
+/* ---------- events ---------- */
+
+document.addEventListener("click", async (e) => {
+  const nav = e.target.closest(".nav-item[data-view]");
+  if (nav) return goto(nav.dataset.view);
+
+  const jump = e.target.closest("[data-goto]");
+  if (jump) { e.preventDefault(); return goto(jump.dataset.goto); }
+
+  const src = e.target.closest("[data-source]");
+  if (src) { e.preventDefault(); closePeek(); return goto("source", Number(src.dataset.source)); }
+
+  if (e.target.closest("#src-refresh"))
+    return refreshSource(e.target.closest("#src-refresh").dataset.id, e.target.closest("#src-refresh"));
+  if (e.target.closest("#src-add")) {
+    $("#src-form").innerHTML = addTaskFormHTML(e.target.closest("#src-add").dataset.id);
+    $("#t-task")?.focus();
+    return;
+  }
+  if (e.target.closest("#t-cancel")) { $("#src-form").innerHTML = ""; return; }
+  if (e.target.closest("#t-save"))   return submitTask(e.target.closest("#t-save").dataset.id);
+
+  const dirPick = e.target.closest("#t-dir .btn");
+  if (dirPick) {
+    [...dirPick.parentElement.children].forEach((b) =>
+      b.setAttribute("aria-pressed", String(b === dirPick)));
+    $("#t-owner-field").hidden = dirPick.dataset.dir !== "theirs";
+    if (dirPick.dataset.dir === "theirs") $("#t-owner").focus();
+    return;
+  }
+
+  const openTask = e.target.closest("[data-open-task]");
+  if (openTask) return openPeek(Number(openTask.dataset.openTask));
+  const delTask = e.target.closest("[data-del-task]");
+  if (delTask) return deleteTask(Number(delTask.dataset.delTask));
+  if (e.target.closest("#pk-delete"))
+    return deleteTask(Number(e.target.closest("#pk-delete").dataset.id));
+
+  const pkStatus = e.target.closest("#pk-status .btn");
+  if (pkStatus) return patchTask(peekId, { status: pkStatus.dataset.status });
+  const pkDir = e.target.closest("#pk-dir .btn");
+  if (pkDir) {
+    const next = pkDir.dataset.dir;
+    return patchTask(peekId, next === "mine" ? { direction: "mine", owner: "me" }
+                                             : { direction: "theirs" });
+  }
+
+  const prov = e.target.closest("[data-provider]");
+  if (prov) {
+    const key = prov.dataset.provider;
+    const preset = (CONFIG.presets || {})[key] || {};
+    CONFIG = { ...CONFIG, provider: key, base_url: preset.base_url || "",
+               model: preset.default_model || "" };
+    render();
+    return;
+  }
+  if (e.target.closest("#s-reveal")) return revealKey();
+
+  const pick = e.target.closest("[data-pick]");
+  if (pick) {
+    e.preventDefault();
+    $("#s-model").value = pick.dataset.pick;
+    toast("Model set. Press Save to apply.");
+    return;
+  }
+
+  if (e.target.closest("#n-save")) return submitNote();
+  if (e.target.closest("#s-save")) return saveSettings();
+  if (e.target.closest("#s-test")) return testSettings();
+  if (e.target.closest("#s-models")) return browseModels();
+  if (e.target.closest("#dz")) return $("#file-input").click();
+  if (e.target.closest("#sync") || e.target.closest("#sync2")) return runSync();
+  if (e.target.closest("#theme")) {
+    const light = document.documentElement.getAttribute("data-theme") === "light";
+    document.documentElement.setAttribute("data-theme", light ? "dark" : "light");
+    return;
+  }
+
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    const note = NOTES.find((n) => n.id === Number(del.dataset.del));
+    if (!confirm(`Remove “${note ? note.title : "this note"}” and everything extracted from it?\n\nThe file moves to your trash folder.`)) return;
+    try {
+      await api("DELETE", `/api/notes/${del.dataset.del}`);
+      await Promise.all([loadNotes(), loadTasks()]);
+      render();
+      toast("Removed");
+    } catch (err) { toast(err.message, 6000); }
+    return;
+  }
+
+  const tab = e.target.closest("[data-filter]");
+  if (tab) { filter = tab.dataset.filter; return render(); }
+  const grp = e.target.closest("[data-group]");
+  if (grp) { group = grp.dataset.group; return render(); }
+
+  const check = e.target.closest("[data-check]");
+  if (check) return move(Number(check.dataset.check), check.checked ? "done" : "todo");
+
+  const row = e.target.closest(".task-row");
+  if (row && !e.target.closest("button")) return openPeek(Number(row.dataset.id));
+
+  const card = e.target.closest(".card");
+  if (card) return openPeek(Number(card.dataset.id));
+});
+
+document.addEventListener("change", (e) => {
+  if (e.target.id === "file-input") submitFiles(e.target.files);
+  if (e.target.id === "pk-due")   return patchTask(peekId, { due_date: e.target.value || null });
+  if (e.target.id === "pk-owner") return patchTask(peekId, { owner: e.target.value });
+  if (e.target.id === "t-status" || e.target.id === "pk-due" || e.target.id === "t-due") return;
+});
+
+document.addEventListener("blur", (e) => {
+  if (e.target.id === "pk-task" && peekId) {
+    const t = TASKS.find((x) => x.id === peekId) || (SOURCE?.tasks || []).find((x) => x.id === peekId);
+    const next = e.target.value.trim();
+    if (next && t && next !== t.task) patchTask(peekId, { task: next });
+  }
+}, true);
+
+$("#peek-close").addEventListener("click", closePeek);
+$("#scrim").addEventListener("click", closePeek);
+document.addEventListener("keydown", (e) => {
+  if (e.target.id === "pk-task" && e.key === "Enter") { e.preventDefault(); e.target.blur(); return; }
+  if (e.target.id === "t-task" && e.key === "Enter") {
+    e.preventDefault();
+    const save = $("#t-save");
+    if (save) submitTask(save.dataset.id);
+    return;
+  }
+  if (e.target.matches?.("input, textarea, select")) {
+    if (e.key === "Escape") e.target.blur();
+    return;
+  }
+  const openRow = e.target.closest?.(".task-row");
+  if (openRow && e.key === "Enter") { e.preventDefault(); return openPeek(Number(openRow.dataset.id)); }
+  const openSrc = e.target.closest?.("tr.clickable");
+  if (openSrc && e.key === "Enter") { e.preventDefault(); return goto("source", Number(openSrc.dataset.source)); }
+  if (e.key === "Escape") closePeek();
+  if (view !== "board") return;
+  const card = document.activeElement?.closest?.(".card");
+  if (card && ["1", "2", "3"].includes(e.key)) {
+    e.preventDefault();
+    move(Number(card.dataset.id), COLUMNS[Number(e.key) - 1].key);
+  }
+});
+
+/* drag and drop -> PATCH (no localStorage; the server holds board state) */
+let dragId = null;
+document.addEventListener("dragstart", (e) => {
+  const card = e.target.closest(".card");
+  if (!card) return;
+  dragId = Number(card.dataset.id);
+  card.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  e.dataTransfer.setData("text/plain", String(dragId));
+});
+document.addEventListener("dragend", (e) => {
+  e.target.closest?.(".card")?.classList.remove("dragging");
+  document.querySelectorAll(".drop.over").forEach((d) => d.classList.remove("over"));
+});
+document.addEventListener("dragover", (e) => {
+  const zone = e.target.closest("#dz");
+  if (zone) { e.preventDefault(); zone.classList.add("over"); return; }
+  const drop = e.target.closest(".drop");
+  if (!drop || dragId === null) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = "move";
+  drop.classList.add("over");
+});
+document.addEventListener("dragleave", (e) => {
+  e.target.closest?.(".drop")?.classList.remove("over");
+  e.target.closest?.("#dz")?.classList.remove("over");
+});
+document.addEventListener("drop", (e) => {
+  const zone = e.target.closest("#dz");
+  if (zone) {
+    e.preventDefault(); zone.classList.remove("over");
+    if (e.dataTransfer.files?.length) submitFiles(e.dataTransfer.files);
+    return;
+  }
+  const drop = e.target.closest(".drop");
+  if (!drop) return;
+  e.preventDefault();
+  drop.classList.remove("over");
+  const id = dragId ?? Number(e.dataTransfer.getData("text/plain"));
+  dragId = null;
+  if (id) move(id, drop.dataset.status);
+});
+
+async function runSync() {
+  const btn = $("#sync");
+  btn.disabled = true;
+  const original = btn.innerHTML;
+  btn.innerHTML = `<span class="ico spin">◐</span> Syncing…`;
+  try {
+    const body = await api("POST", "/api/sync");
+    await loadTasks();
+    render();
+    const bits = [`${body.extracted} meeting${body.extracted === 1 ? "" : "s"} read`,
+                  `${body.created} new`, `${body.merged} merged`];
+    if (body.dropped) bits.push(`${body.dropped} dropped`);
+    toast(bits.join(" · "));
+    if (body.errors?.length) toast(body.errors[0], 7000);
+  } catch (err) {
+    toast(`Sync failed: ${err.message}`, 7000);
+  } finally { btn.disabled = false; btn.innerHTML = original; }
+}
+
+/* A stale server serves this page but not its newest routes. Say so, rather
+   than letting the first feature that needs one fail mysteriously. */
+async function checkServer() {
+  try {
+    const r = await api("GET", "/api/version");
+    if (r.api !== NEEDS_API) throw new Error(`server is API ${r.api}, page needs ${NEEDS_API}`);
+  } catch {
+    const bar = document.createElement("div");
+    bar.className = "stale-bar";
+    bar.innerHTML = `<b>This page is newer than the server running it.</b>
+      Stop the server and start it again to pick up the new code
+      (<code>python -m pkm serve</code>), or parts of the app will fail to load.`;
+    document.body.prepend(bar);
+  }
+}
+
+checkServer();
+
+loadTasks().then(render).catch((err) => {
+  $("#root").innerHTML = `<div class="callout warn"><span class="ico">⚠️</span><div>
+    Couldn’t reach the server: ${esc(err.message)}</div></div>`;
+});
+</script>
+</body>
+</html>
