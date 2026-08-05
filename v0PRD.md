@@ -650,6 +650,32 @@ it stays deferred, because a task list that grows on its own is the opposite of
 
 ---
 
+## 14. Deleting means deleting
+
+`pull` used to report a card you had deleted in Notion and keep the row anyway,
+under D9's rule that an automated sync must never lose a real commitment. §12
+inverted the premise: Notion owns the card, so deleting it there is the clearest
+statement of intent available.
+
+The old rule left the two boards permanently disagreeing — 16 here, 14 there —
+and printed a warning on every tick that nothing could ever clear. A warning that
+cannot be acted on is one you stop reading.
+
+**D26 — a card deleted in Notion is deleted here, and the log keeps the record.**
+`--keep-missing` opts out. This is not Ruger deleting anything; it is Ruger
+noticing that you did.
+
+**Guarded, because the failure mode is catastrophic and quiet.** A pull returning
+no pages, or finding more than half the pushed board missing, is a broken query —
+wrong database id, revoked access — not a person deleting forty cards at once. In
+that shape it removes nothing and says why. Without the guard, one bad credential
+would silently erase the board.
+
+*The reverse direction is unchanged.* A Notion page whose commitment is gone here
+is still only reported, and archived only with `--prune`.
+
+---
+
 ## Build order
 
 | | | |
@@ -664,7 +690,9 @@ it stays deferred, because a task list that grows on its own is the opposite of
 | **Step 8** | Fuzzy dedup + instructions (§11) | **done** |
 | **Step 9** | The board becomes a log; Notion owns the cards (§12) | **done** |
 | **Step 10** | Subtasks as checklist blocks (§13) | **done** |
-| **Step 11** | Breaking a task into steps automatically (§13) | not started |
+| **Step 11** | Deleting means deleting (§14) | **done** |
+| **Step 12** | Breaking a task into steps automatically (§13) | not started |
+| **Step 13** | Slack — under discussion, see §15 | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

@@ -153,6 +153,11 @@ them, so a rename or a date you change in Notion sticks. The cost: a later, bett
 extraction will not update a card that already exists. `pkm push --resend`
 overrides it.
 
+**Delete a card in Notion and it goes here too.** That is the same rule from the
+other side. `pkm pull --keep-missing` opts out, and the log keeps the record. A
+pull that finds most of the board missing removes nothing and says so — that shape
+is a broken query, not a decision.
+
 **Status only travels one way,** Notion → Ruger, read back by `pkm pull`. The
 exception is an instruction: "mark it done" or "push it to friday" is explicit
 intent about that one card, so it is sent, content and all.
@@ -210,7 +215,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **706 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **717 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash

@@ -254,8 +254,16 @@ def report_pull(stats: dict, dry_run: bool) -> None:
         print(f"  {stats['orphaned']} page(s) whose commitment no longer exists here"
               + (f" — {stats['archived']} archived" if stats["archived"]
                  else " (pass --prune to archive them)"))
-    for gone in stats["missing"]:
-        print(f"  ! page deleted in Notion, kept here: {_w(gone['task'], 60)}")
+    if stats.get("forgotten"):
+        print(f"  {stats['forgotten']} card(s) you deleted in Notion were removed "
+              f"here too")
+        for gone in stats["missing"]:
+            print(f"    − {_w(gone['task'], 60)}")
+    else:
+        for gone in stats["missing"]:
+            print(f"  ! page deleted in Notion, kept here: {_w(gone['task'], 60)}")
+    for note in stats.get("kept") or []:
+        print(f"  ! {note}")
 
 
 def doctor() -> None:
@@ -364,6 +372,9 @@ def main(argv: list[str] | None = None) -> int:
     p_pull.add_argument("--dry-run", action="store_true", help="print, change nothing")
     p_pull.add_argument("--prune", action="store_true",
                         help="archive Notion pages whose commitment is gone here")
+    p_pull.add_argument("--keep-missing", action="store_true",
+                        help="keep rows whose Notion card you deleted "
+                             "(normally they go too)")
 
     sub.add_parser("unlink", help="forget every Notion page id (next push recreates)")
 
@@ -470,7 +481,8 @@ def main(argv: list[str] | None = None) -> int:
 
         with closing(db.connect()) as conn:
             try:
-                stats = notion.pull(conn, dry_run=args.dry_run, prune=args.prune)
+                stats = notion.pull(conn, dry_run=args.dry_run, prune=args.prune,
+                                    forget_missing=not args.keep_missing)
             except notion.NotionError as exc:
                 print(f"! {exc}")
                 return 1

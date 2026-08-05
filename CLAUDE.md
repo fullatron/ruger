@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 706 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 717 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -68,7 +68,7 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 706 assertions.
 .venv/bin/python scratch/test_providers.py          # JSON salvage + shape check      (38)
 .venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF      (59)
 .venv/bin/python scratch/test_tasks.py              # read-only board, merge-refresh  (66)
-.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (130)
+.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (141)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
@@ -566,10 +566,17 @@ in the 404 message rather than passing Notion's wording through.
   to do, so `STATUS_ALIASES` accepts "Not started", "WIP", "Completed" and
   friends. Anything unrecognised is left alone and counted in `unreadable` —
   never guessed at, never reset to todo.
-- **Nothing is deleted on either side by default.** A page whose commitment is
-  gone here is *reported* as orphaned and only archived with `--prune`. A row
-  whose page vanished from Notion is reported in `missing` and kept. Same rule
-  as refresh: an automated sync must not lose a real commitment.
+- **A card you delete in Notion is deleted here too (§14).** Under D21 Notion
+  owns the card, so removing it there is the clearest statement of intent there
+  is. The old rule — report it and keep it — left the two boards permanently
+  disagreeing and printed a warning on every tick that nothing could clear.
+  `--keep-missing` opts out, and the log keeps the record.
+  **Guarded:** a pull that returns no pages, or finds more than `FORGET_LIMIT` of
+  the board missing, reports and removes nothing. That shape is a broken query —
+  wrong database, revoked access — not a person deleting forty cards at once.
+- **The other direction still deletes nothing by default.** A Notion page whose
+  commitment is gone here is *reported* as orphaned and only archived with
+  `--prune`.
 - **A page added in Notion by hand is ignored, not adopted.** It has no
   `Ruger ID`, and the board is derived from meetings — inventing an episode for
   it would break D2.

@@ -490,11 +490,48 @@ def test_push_and_pull(conn):
           db.get_commitment(conn, moved_id)["status"], "done")
     STATE["pages"][page_id]["properties"]["Status"] = {"select": {"name": "Done"}}
 
+    print("\na card you deleted in Notion is deleted here too (§14):")
+    # Not `page_id`: the status assertions below still need that one alive.
+    victim = next(k for k in STATE["pages"] if k != page_id)
+    victim_id = notion.read_ruger_id(STATE["pages"][victim])
+    victim_task = db.get_commitment(conn, victim_id)["task"]
+    del STATE["pages"][victim]
+
+    stats = notion.pull(conn)
+    check("reported as missing", [m["id"] for m in stats["missing"]], [victim_id])
+    check("and forgotten", stats["forgotten"], 1)
+    check("the row is gone", db.get_commitment(conn, victim_id), None)
+    events = [e for e in db.recent_events(conn) if e["action"] == "deleted"]
+    check("the log kept the record", events[0]["task"], victim_task)
+    check("and says who did it", events[0]["detail"],
+          "you deleted the card in Notion")
+
+    print("\n  but a query that returns nothing is a bug, not a decision:")
+    kept_pages = dict(STATE["pages"])
+    STATE["pages"].clear()
+    stats = notion.pull(conn)
+    check("nothing was removed", stats["forgotten"], 0)
+    check("and it says why", "query problem" in (stats["kept"] or [""])[0], True)
+    check("the board survives",
+          conn.execute("SELECT COUNT(*) AS n FROM commitments").fetchone()["n"], 2)
+    STATE["pages"].update(kept_pages)
+
+    print("\n  --keep-missing opts out:")
+    another = next(k for k in STATE["pages"] if k != page_id)
+    another_id = notion.read_ruger_id(STATE["pages"][another])
+    stashed = STATE["pages"].pop(another)
+    stats = notion.pull(conn, forget_missing=False)
+    check("reported", [m["id"] for m in stats["missing"]], [another_id])
+    check("not forgotten", stats["forgotten"], 0)
+    check("and still here", db.get_commitment(conn, another_id) is not None, True)
+    STATE["pages"][another] = stashed          # put the fake back as it was
+
     print("\n  dry runs touch nothing:")
     STATE["patches"].clear()
     STATE["creates"].clear()
     plan = notion.push(conn, dry_run=True)
-    check("plan covers every row", len(plan["plan"]), 3)
+    # Two, not three: one row went with the card deleted in Notion above.
+    check("plan covers every row", len(plan["plan"]), 2)
     check("all of them skips, because Notion owns them now",
           {p["action"] for p in plan["plan"]}, {"skip"})
     check("no writes were sent", len(STATE["patches"]) + len(STATE["creates"]), 0)

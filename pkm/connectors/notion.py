@@ -612,20 +612,32 @@ def all_pages(database_id: str | None = None) -> list[dict]:
         time.sleep(GAP)
 
 
+# A pull that finds most of the board missing is far more likely to be a bad
+# query — wrong database, revoked access, an empty page of results — than a person
+# deleting nearly everything at once. Above this fraction it reports and refuses.
+FORGET_LIMIT = 0.5
+
+
 def pull(conn: sqlite3.Connection, *, dry_run: bool = False,
-         prune: bool = False) -> dict:
+         prune: bool = False, forget_missing: bool = True) -> dict:
     """Bring Notion's status back, and report what has drifted.
 
     Notion wins on status, because that is where the human now works. Nothing
     else is read back: content stays owned by the extraction and by edits made
     here, so a stray keystroke in Notion cannot rewrite a verified quote.
+
+    `forget_missing` (§14): a card you deleted in Notion is deleted here too.
+    Under D21 Notion owns the card, so removing it there is the clearest possible
+    statement of intent — and the old rule of keeping it and warning forever left
+    the two boards permanently disagreeing, with a warning on every tick that
+    nothing could ever clear. The log keeps the record.
     """
     pages = all_pages()
     local = {int(r["id"]): r for r in db.commitments_to_push(conn)}
 
     stats = {"pages": len(pages), "changed": 0, "unchanged": 0, "orphaned": 0,
              "archived": 0, "unlinked": 0, "unreadable": 0, "moves": [],
-             "orphans": []}
+             "orphans": [], "forgotten": 0, "kept": []}
 
     seen: set[int] = set()
     for page in pages:
@@ -667,11 +679,30 @@ def pull(conn: sqlite3.Connection, *, dry_run: bool = False,
                              detail=f"{row['status']} → {status} in Notion",
                              external_url=row["external_url"])
 
-    # A row whose page vanished from the database: the page was deleted in
-    # Notion. Reported, never deleted here — the same rule refresh follows.
-    stats["missing"] = [
-        {"id": cid, "task": row["task"]}
-        for cid, row in local.items()
-        if row["external_id"] and cid not in seen
-    ]
+    # A row whose page vanished from the database: you deleted the card.
+    missing = [(cid, row) for cid, row in local.items()
+               if row["external_id"] and cid not in seen]
+    stats["missing"] = [{"id": cid, "task": row["task"]} for cid, row in missing]
+
+    pushed = sum(1 for r in local.values() if r["external_id"])
+    # Refuse to act on a result that looks like a broken query rather than a
+    # decision: no pages at all, or most of the board gone in one run.
+    suspicious = (not pages) or (pushed and len(missing) / pushed > FORGET_LIMIT)
+
+    if missing and forget_missing and not dry_run and not suspicious:
+        for cid, row in missing:
+            with db.transaction(conn):
+                db.delete_commitment(conn, cid)
+                db.log_event(conn, "deleted", row["task"], commitment_id=cid,
+                             detail="you deleted the card in Notion",
+                             external_url=row["external_url"])
+            stats["forgotten"] += 1
+    elif missing and suspicious:
+        # Said out loud rather than swallowed: this is the case where doing
+        # nothing is right but silence would look like the feature not working.
+        stats["kept"] = [
+            f"{len(missing)} page(s) missing out of {pushed} pushed — that looks "
+            f"like a query problem, not a decision, so nothing was removed"
+        ]
+
     return stats
