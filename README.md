@@ -108,11 +108,12 @@ imported every 5 minutes and turned into tasks without you doing anything. You c
 also paste a note or drop `.md` files in the **Add notes** tab, or put files in
 `~/.pkm/inbox` yourself.
 
-**The log** is at [127.0.0.1:8765](http://127.0.0.1:8765): what was sent to Notion,
-what came back, and the quote behind each task. It is a record, not a second task
-list, so there is nothing to drag or tick — that is Notion's job. **Sources** shows
-each note's transcript, the tasks read out of it, and everything the quote check
-dropped.
+**The log** is at [127.0.0.1:8765](http://127.0.0.1:8765): what you captured, what
+you asked for, what was sent to Notion, what came back, and the quote behind each
+task. It refreshes itself every few seconds, so you can leave it open. It is a
+record, not a second task list, so there is nothing to drag or tick — that is
+Notion's job. **Sources** shows each note's transcript, the tasks read out of it,
+and everything the quote check dropped.
 
 ## Commands
 
@@ -148,8 +149,8 @@ extraction will not update a card that already exists. `pkm push --resend`
 overrides it.
 
 **Status only travels one way,** Notion → Ruger, read back by `pkm pull`. The
-exception is an instruction like "mark it done", which is explicit enough to send
-the other way.
+exception is an instruction: "mark it done" or "push it to friday" is explicit
+intent about that one card, so it is sent, content and all.
 
 **The same job twice becomes one card.** Two people asking for the same thing
 merges into one task with a `2×` count, keeping both quotes. Similar wording is
@@ -204,7 +205,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **681 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **686 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash

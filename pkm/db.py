@@ -546,7 +546,12 @@ SELECT c.id,
 
 # --- the log (§12) ------------------------------------------------------------
 
-ACTIONS = ("created", "resent", "status", "deleted", "merged")
+# `captured` and `instructed` record what YOU did, not what Notion did, and they
+# are logged even when the outcome was nothing at all. An instruction that matched
+# no task used to leave no trace anywhere, which is indistinguishable from the
+# feature being broken.
+ACTIONS = ("created", "resent", "status", "deleted", "merged",
+           "captured", "instructed")
 
 
 def log_event(conn: sqlite3.Connection, action: str, task: str, *,
@@ -567,6 +572,12 @@ def log_event(conn: sqlite3.Connection, action: str, task: str, *,
         (commitment_id, action, task, detail, external_url, now()),
     )
     return int(cur.lastrowid)
+
+
+def latest_event_id(conn: sqlite3.Connection) -> int:
+    """The newest log id, for polling. One indexed read, no join."""
+    row = conn.execute("SELECT MAX(id) AS id FROM sync_events").fetchone()
+    return int(row["id"] or 0)
 
 
 def recent_events(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:

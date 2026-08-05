@@ -526,8 +526,10 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
                 with db.transaction(conn):
                     db.log_event(conn, "resent" if action == "resend" else "status",
                                  row["task"], commitment_id=int(row["id"]),
-                                 detail=("content re-sent" if action == "resend"
-                                         else f"status set to {row['status']}"),
+                                 # No detail for a resend: the label already says
+                                 # it, and repeating it reads as a rendering bug.
+                                 detail=(None if action == "resend"
+                                         else f"set to {row['status']} in Notion"),
                                  external_url=row["external_url"])
                 stats["updated"] += 1
             else:

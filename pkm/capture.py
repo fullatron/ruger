@@ -114,6 +114,20 @@ def notify(title: str, message: str) -> None:
         pass
 
 
+def _outcome(result: dict) -> str:
+    """What the capture produced, for the log line."""
+    bits = []
+    if result["tasks"]:
+        bits.append("; ".join(t["task"] for t in result["tasks"][:3]))
+        if len(result["tasks"]) > 3:
+            bits.append(f"and {len(result['tasks']) - 3} more")
+    if result["merged"]:
+        bits.append(f"{result['merged']} merged into existing")
+    if result["dropped"]:
+        bits.append(f"{result['dropped']} dropped by the quote check")
+    return " · ".join(bits) or "no tasks found in it"
+
+
 def summarise(result: dict) -> str:
     """One line for a notification or a terminal."""
     if result.get("kind") == "command":
@@ -212,6 +226,16 @@ def run(text: str, *, conn: sqlite3.Connection | None = None, push: bool = True,
 
         if push and tasks:
             result.update(_push(conn, ids))
+
+        # Logged whatever the outcome, including none: a capture that produced
+        # nothing is otherwise invisible, and looks exactly like one that never
+        # ran. The note file is on disk either way.
+        with db.transaction(conn):
+            db.log_event(
+                conn, "captured", " ".join(text.split())[:300],
+                commitment_id=tasks[0]["id"] if len(tasks) == 1 else None,
+                detail=_outcome(result),
+                external_url=tasks[0]["external_url"] if len(tasks) == 1 else None)
         return result
     finally:
         if own_conn:

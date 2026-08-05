@@ -255,21 +255,52 @@ def run(conn: sqlite3.Connection, text: str, *, ask=None, plan_fn=None,
     edited = [c["id"] for c in applied]
     if push and edited:
         result.update(_push(conn, set(edited), force_status=set(moved)))
+
+    _log(conn, text, result)
     return result
 
 
-def _push(conn: sqlite3.Connection, ids: set[int], force_status: set[int]) -> dict:
-    """Send the edited rows out, forcing Status only for the ones that moved.
+def _log(conn: sqlite3.Connection, text: str, result: dict) -> None:
+    """Record the instruction itself, whatever came of it.
 
-    D9 says push never re-sends Status, so a routine re-push cannot drag a card
-    back out of a column you moved it to. An instruction is the exception the PRD
-    anticipated: you said "mark it done", so Notion is told. Every other push is
-    untouched by this.
+    Especially when nothing did: "nothing matched" written down is a system that
+    heard you and disagreed, which is a different thing from a system that is
+    broken, and you cannot tell them apart from silence.
+    """
+    changes = result["changes"]
+    if changes:
+        detail = "; ".join(c["line"] for c in changes[:3])
+        if len(changes) > 3:
+            detail += f"; and {len(changes) - 3} more"
+    elif result.get("error"):
+        detail = f"could not read it: {result['error']}"
+    elif result["unclear"]:
+        detail = f"nothing changed — {result['unclear'][0]}"
+    else:
+        detail = "nothing matched"
+
+    with db.transaction(conn):
+        db.log_event(conn, "instructed", " ".join(str(text or "").split())[:300],
+                     commitment_id=changes[0]["id"] if len(changes) == 1 else None,
+                     detail=detail)
+
+
+def _push(conn: sqlite3.Connection, ids: set[int], force_status: set[int]) -> dict:
+    """Send the edited rows out: content always, Status for the ones that moved.
+
+    Both flags are overrides, and an instruction is what justifies them. D9 keeps
+    Status out of a routine push so it cannot drag a card back out of a column;
+    D21 keeps content out so a re-extraction cannot revert your edits in Notion.
+    Neither applies when a person just said "push the invoice to friday" — that is
+    explicit intent about this card, scoped to this card.
+
+    `resend` was missing here at first, and the result was silent: the due date
+    changed locally, the notification said so, and Notion never heard about it.
     """
     from .connectors import notion
 
     try:
-        stats = notion.push(conn, only=ids, force_status=force_status)
+        stats = notion.push(conn, only=ids, resend=True, force_status=force_status)
     except notion.NotionError as exc:
         return {"pushed": 0, "push_error": str(exc)}
     return {"pushed": stats["created"] + stats["updated"],

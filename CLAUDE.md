@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 681 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 686 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -73,7 +73,7 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 681 assertions.
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (49)
-.venv/bin/python scratch/test_instruct.py           # fuzzy dedup + instructions      (48)
+.venv/bin/python scratch/test_instruct.py           # fuzzy dedup + instructions      (53)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints, and the log      (26)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -464,9 +464,12 @@ there. Nothing new reaches `events` (D2, for the third time).
   resyncs, so the survivor's count covers both askers and the detail panel still
   shows who said what (D5). It returns the dropped row's Notion page id rather than
   acting on it — that module makes no network calls.
-- **Only an instruction ever re-sends Status.** `notion.push(force_status={ids})`,
-  given only the ids that moved. D9 is otherwise intact, and `test_notion.py`
-  asserts both halves: no Status in a normal push, Status in a forced one.
+- **Only an instruction ever re-sends anything.** `instruct._push` passes BOTH
+  `resend=True` and `force_status={moved ids}`, scoped by `only`. D9 keeps Status
+  out of a routine push and D21 keeps content out; an instruction overrides both
+  for the cards it names. `resend` was missing at first and the failure was
+  silent — the due date changed locally, the notification said so, and Notion
+  never heard. If you touch this, keep the test that pins it.
 - **An instruction is the one model output with no quote to check.** So it is
   fenced instead: ids must have been offered and still be open, only four fields
   may move, every value is validated in `instruct.validate`, there is no delete,
@@ -499,6 +502,13 @@ D9 makes status one-directional. It is a log now.
 - **`sync_events` is deliberately not a foreign key,** and snapshots the task
   text. A log has to outlive the thing it logs — a cascade would erase exactly
   the "sent, then deleted" history you want.
+- **Captures and instructions are logged even when nothing happened.** "Nothing
+  matched" written down is a system that heard you and disagreed; silence is
+  indistinguishable from a broken feature, which is exactly how the missing
+  `resend` stayed hidden.
+- **The page polls `/api/events?since=<id>`.** When nothing has happened that is
+  one indexed read and an empty reply, which is what makes polling preferable to
+  holding a socket open from a stdlib server. It pauses on a hidden tab.
 - **`db._backfill_log` runs once**, giving rows pushed before the log existed a
   past. Without it the log opens empty on a board with a dozen cards already in
   Notion, which reads as "nothing was ever sent".

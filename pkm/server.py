@@ -144,8 +144,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/events":
             limit = int((query.get("limit") or ["300"])[0] or 300)
+            since = (query.get("since") or [""])[0]
             with closing(db.connect()) as conn:
+                latest = db.latest_event_id(conn)
+                # The page polls with `since` a few times a minute. When nothing
+                # has happened that is one indexed read and an empty reply, which
+                # is what makes polling cheap enough to prefer over a socket.
+                if since.isdigit() and int(since) == latest:
+                    return self._json(200, {"latest": latest, "events": None})
                 return self._json(200, {
+                    "latest": latest,
                     "events": db.recent_events(conn, min(max(limit, 1), 1000)),
                 })
 

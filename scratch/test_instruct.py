@@ -310,6 +310,31 @@ def main() -> None:
 
         check("both rows are pushed", sent[0]["only"], {moved, renamed})
         check("only the moved one forces Status", sent[0]["force_status"], {moved})
+        # The regression this exists for: §12 made push create-only, so without
+        # `resend` an instruction changed the due date locally, said so in the
+        # notification, and Notion never heard about it.
+        check("and content is re-sent, or a due date never leaves the machine",
+              sent[0].get("resend"), True)
+
+    print("\nan instruction is logged even when it changes nothing:")
+    with closing(db.connect(TMP / "log.db")) as conn:
+        seed(conn)
+        task = add(conn, "Send Maya the deck")
+
+        instruct.run(conn, "mark the deck one done", push=False,
+                     plan_fn=lambda *a, **k: {"changes": [{"id": task, "status": "done"}],
+                                              "unclear": [], "error": None})
+        instruct.run(conn, "sort out the thing", push=False,
+                     plan_fn=lambda *a, **k: {"changes": [], "unclear": [],
+                                              "error": None})
+        events = db.recent_events(conn)
+        check("both were recorded", [e["action"] for e in events],
+              ["instructed", "instructed"])
+        check("what you said is kept", events[0]["task"], "sort out the thing")
+        check("and so is the fact that it did nothing",
+              events[0]["detail"], "nothing matched")
+        check("the one that worked says what changed",
+              "todo → done" in events[1]["detail"], True)
 
     print(f"\nOK — {PASSES['n']} assertions. Duplicates merge without losing "
           f"evidence, and an instruction cannot touch what it was not shown.")

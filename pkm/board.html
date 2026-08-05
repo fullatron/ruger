@@ -413,6 +413,19 @@ h1 {
 .ev-link:hover { color: var(--blue); }
 .ev-task { font-size: 14px; font-weight: 500; line-height: 1.4; }
 .ev-task.struck { color: var(--text-3); text-decoration: line-through; }
+/* What you said, rather than a task Ruger extracted: quieter, and quoted. */
+.ev.said .ev-task { font-weight: 400; color: var(--text-2); }
+.ev.said .ev-task::before { content: "“"; }
+.ev.said .ev-task::after  { content: "”"; }
+.ev.said .ev-mark { color: var(--purple); }
+
+/* Arrived while you were looking at the page. */
+.ev.fresh { animation: land 2.4s ease-out; }
+@keyframes land {
+  0%   { background: var(--purple-bg); }
+  100% { background: transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .ev.fresh { animation: none; } }
 /* The log's own rows already indent under the mark, so the card-face offset the
    board used would double up. */
 .ev .evidence { margin-left: 0; }
@@ -917,7 +930,12 @@ async function api(method, path, body) {
 }
 
 const loadTasks  = async () => { TASKS = (await api("GET", "/api/tasks")).tasks || []; };
-const loadEvents = async () => { EVENTS = (await api("GET", "/api/events")).events || []; };
+let latestEvent = 0;
+const loadEvents = async () => {
+  const r = await api("GET", "/api/events");
+  EVENTS = r.events || [];
+  latestEvent = r.latest || 0;
+};
 const loadNotes  = async () => { NOTES = (await api("GET", "/api/notes")).notes || []; };
 const loadConfig = async () => { CONFIG = await api("GET", "/api/config"); };
 const loadSource = async (id) => { SOURCE = await api("GET", `/api/notes/${id}`); };
@@ -928,15 +946,18 @@ const loadSource = async (id) => { SOURCE = await api("GET", `/api/notes/${id}`)
    which is the one thing Notion cannot show you (D5). Nothing here writes state. */
 
 const ACTIONS = {
-  created: { icon: "↗", label: "sent to Notion",  cls: "made" },
-  resent:  { icon: "⟳", label: "content re-sent", cls: "" },
-  status:  { icon: "↺", label: "status changed",  cls: "moved" },
-  deleted: { icon: "✕", label: "removed here",    cls: "gone" },
-  merged:  { icon: "⇢", label: "merged",          cls: "" },
+  created:    { icon: "↗", label: "sent to Notion",  cls: "made" },
+  resent:     { icon: "⟳", label: "content re-sent", cls: "" },
+  status:     { icon: "↺", label: "status changed",  cls: "moved" },
+  deleted:    { icon: "✕", label: "removed here",    cls: "gone" },
+  merged:     { icon: "⇢", label: "merged",          cls: "" },
+  captured:   { icon: "🎙", label: "you captured",    cls: "said" },
+  instructed: { icon: "💬", label: "you said",        cls: "said" },
 };
 
 const FILTERS = {
   all:     () => true,
+  said:    (e) => e.action === "captured" || e.action === "instructed",
   created: (e) => e.action === "created",
   status:  (e) => e.action === "status",
 };
@@ -962,7 +983,8 @@ function eventHTML(e) {
   const kind = ACTIONS[e.action] || { icon: "·", label: e.action, cls: "" };
   const overdue = e.due_date && e.due_date < TODAY && e.status !== "done";
   return `
-  <li class="ev ${kind.cls}" ${e.alive ? `data-id="${e.commitment_id}" tabindex="0"` : ""}>
+  <li class="ev ${kind.cls} ${freshEvents.has(e.id) ? "fresh" : ""}"
+      ${e.alive ? `data-id="${e.commitment_id}" tabindex="0"` : ""}>
     <div class="ev-when">${clockOf(e.at)}</div>
     <div class="ev-mark" aria-hidden="true">${kind.icon}</div>
     <div class="ev-body">
@@ -1000,7 +1022,8 @@ function boardHTML() {
     </div>`;
   }
 
-  const tabs = [["all", "Everything"], ["created", "Sent"], ["status", "Status changes"]];
+  const tabs = [["all", "Everything"], ["said", "What I said"],
+                ["created", "Sent"], ["status", "Status changes"]];
   const shown = EVENTS.filter(FILTERS[filter] || FILTERS.all);
 
   const days = [];
@@ -1860,6 +1883,40 @@ async function checkServer() {
     document.body.prepend(bar);
   }
 }
+
+/* ---------- live updates ----------
+   The timer imports, extracts and pulls from Notion every 5 minutes, and a
+   capture lands whenever you speak one, so this page is stale the moment it
+   renders. It polls with `since=<newest id>`, which costs one indexed read and
+   an empty reply when nothing has happened — cheap enough to prefer over holding
+   a socket open from a stdlib server. */
+const POLL_MS = 5000;
+let freshEvents = new Set();
+
+async function poll() {
+  if (document.hidden) return;                 // no point asking on a hidden tab
+  try {
+    const r = await api("GET", `/api/events?since=${latestEvent}`);
+    if (!r.events) return;                     // nothing new
+
+    const known = new Set(EVENTS.map((e) => e.id));
+    EVENTS = r.events;
+    latestEvent = r.latest || latestEvent;
+    freshEvents = new Set(EVENTS.filter((e) => !known.has(e.id)).map((e) => e.id));
+
+    // Counts in the sidebar come from the tasks, so they move too.
+    await loadTasks().catch(() => {});
+    if (view === "board" || view === "sources") render();
+    if (freshEvents.size) {
+      setTimeout(() => { freshEvents.clear(); if (view === "board") render(); }, 2600);
+    }
+  } catch {
+    // A poll that fails is not worth a toast: the next one is five seconds away.
+  }
+}
+
+setInterval(poll, POLL_MS);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
 
 checkServer();
 
