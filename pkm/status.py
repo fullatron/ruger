@@ -48,6 +48,12 @@ def log_path() -> Path:
     return Path(config.env("PKM_TICK_LOG", "~/.pkm/logs/wispr.log")).expanduser()
 
 
+def capture_script() -> Path:
+    """The dialog the menu opens. Resolved from this file, not from a cwd —
+    SwiftBar runs plugins from its own directory."""
+    return Path(__file__).resolve().parent.parent / "scripts" / "ruger-capture.sh"
+
+
 def url_for() -> str:
     """Read at call time, so a non-default PKM_PORT reaches the menu too."""
     return f"http://{config.SERVER_HOST}:{config.SERVER_PORT}"
@@ -98,6 +104,7 @@ def snapshot(conn: sqlite3.Connection, now: datetime | None = None) -> dict:
         "board": board,
         "tick": tick(now),
         "serving": board_up(),
+        "capture": str(capture_script()),
         "url": url_for(),
         "db": str(config.DB_PATH),
         "inbox": str(config.INBOX),
@@ -177,6 +184,12 @@ def swiftbar(snap: dict) -> str:
                f"| color={GREY}")
 
     out.append("---")
+    # First item, and given the only keyboard shortcut: capture is the one thing
+    # here you do in a hurry. `refresh=true` so the count updates once it lands.
+    out.append(f"Capture a task… | shortcut=CmdOrCtrl+shift+r "
+               f"bash=/bin/sh param1={snap['capture']} terminal=false refresh=true")
+    out.append("--")
+
     if snap["serving"]:
         out.append(f"Open board | href={snap['url']}")
     else:

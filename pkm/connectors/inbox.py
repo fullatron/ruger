@@ -172,6 +172,10 @@ def read_file(path: Path, inbox: Path | None = None) -> dict:
 
     return {
         "source": str(fields.get("source") or "meeting").strip().lower(),
+        # `kind` describes the shape of the episode, and unlike `source` it has no
+        # CHECK constraint — which is what lets a capture (§10, D15) be told apart
+        # from a meeting without rebuilding a table under a live database.
+        "kind": str(fields.get("kind") or "").strip().lower(),
         "external_id": external_id,
         "occurred_at": occurred_at,
         "date_source": date_source,

@@ -10,7 +10,7 @@ Spec: [`v0PRD.md`](v0PRD.md). Working notes: [`CLAUDE.md`](CLAUDE.md).
 
 ```
 Wispr Flow recordings ─┐
-                       ├──▶  ~/.pkm/inbox/*.md          files are the durable artifact
+capture from the menu ─┼──▶  ~/.pkm/inbox/*.md          files are the durable artifact
 paste / drop in the UI ┘            │  inbox connector
                                     ▼
                                  events                 raw items, verbatim
@@ -90,6 +90,7 @@ open http://127.0.0.1:8765
 | `python -m pkm serve [--host --port]` | serve without syncing |
 | `python -m pkm table` | print the current board |
 | `python -m pkm status [--json]` | board counts, and whether the timer is still alive |
+| `python -m pkm capture "…"` | one line → tasks → Notion. Reads stdin if no text is given |
 | `python -m pkm drops` | what the verbatim-quote check rejected, and why |
 | `python -m pkm revalidate [--apply]` | re-check stored drops against the current checker. No model calls |
 | `python -m pkm wispr [--dry-run --limit N]` | Wispr Flow → inbox |
@@ -104,11 +105,52 @@ open http://127.0.0.1:8765
 
 ## How notes get in
 
-Two ways, today: the Wispr Flow importer on a timer, and pasting or dropping a
-note in the board. Both land in `~/.pkm/inbox` as markdown before anything
-becomes a row, so there is exactly one ingest path — which is why adding a source
-later is a connector and not a migration, and why nothing in the pipeline inserts
-straight into `events`.
+Three ways: the Wispr Flow importer on a timer, a capture from the menu bar, and
+pasting or dropping a note in the board. All three land in `~/.pkm/inbox` as
+markdown before anything becomes a row, so there is exactly one ingest path —
+which is why adding a source later is a connector and not a migration, and why
+nothing in the pipeline inserts straight into `events`.
+
+**Capture — a task the moment you think of it.** `⌘⇧R` from the menu bar opens a
+focused text box. Type, or hit your dictation shortcut and speak. Three seconds
+later a notification says "2 tasks added to Notion".
+
+```
+send maya the revised deck tomorrow and also book the trade show banner,
+and I need to chase theo about the invoice by friday
+        │
+        ▼
+· Send Maya the revised deck        due 2026-08-06
+· Chase Theo about the invoice      due 2026-08-07
+· Book the trade show banner        no date
+```
+
+**Ruger records no audio.** The dialog is a text field, and dictating into it is
+Wispr Flow's job or macOS's. That is not a workaround: the extraction model here
+is text-only, so audio would mean a second model and a slower round trip to
+reproduce something already running on the machine. Nothing is recorded, nothing
+is uploaded, and the capture works the same whether you typed or spoke.
+
+A capture is written to the inbox like everything else and read by the same
+pipeline, with two differences, both because a dictated sentence is not a
+transcript:
+
+- **Its own prompt**, `prompts/extract_capture.md`. The meeting prompt is tuned to
+  be ruthless about chatter — *not ideas raised, nothing with no named owner* —
+  and a capture is the opposite. Under meeting rules, "book the trade show banner"
+  is an ownerless idea and gets dropped.
+- **A lower quote floor.** §5 wants four words and fifteen characters, which is
+  right for a transcript and wrong for a note that is one sentence long. For a
+  capture it is two words and six characters. The contiguous-span rule does not
+  move, so an invented or reworded task still fails.
+
+Owner defaults to you unless somebody else is clearly acting: "send Maya the deck"
+is yours, "Maya is sending me the deck" is Maya's.
+
+Tasks go to Notion immediately rather than waiting for the timer, and only the
+capture's own tasks are sent, so it costs one API call instead of a re-send of the
+whole board. A Notion outage costs you the notification, not the task: it stays on
+the local board and the next push carries it out.
 
 **Wispr Flow, on a timer.** This is the path that runs unattended.
 `pkm/connectors/wispr.py` reads Wispr Flow's local store — `flow.sqlite` for the
@@ -518,8 +560,10 @@ pkm/sync.py              ingest -> extract -> dedup -> rows
 pkm/server.py            stdlib http.server; board, notes and settings endpoints
 pkm/board.html           the whole UI. No React, no bundler, no build step
 pkm/status.py            board counts + timer liveness; human, JSON and SwiftBar
+pkm/capture.py           a dictated line -> inbox -> tasks -> Notion
 scripts/wispr-tick.sh    one tick of the unattended pipeline
 scripts/ruger.5m.sh      SwiftBar plugin. A wrapper over `pkm status --swiftbar`
+scripts/ruger-capture.sh the capture dialog. Text field, not a microphone
 ```
 
 `pkm/board.html` follows Notion's dark UI deliberately, driven by custom
@@ -550,8 +594,8 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **538
-assertions** across ten suites.
+No framework — scripts that print PASS/FAIL and exit non-zero. **587
+assertions** across eleven suites.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # idempotent ingest             (22)
@@ -562,7 +606,8 @@ assertions** across ten suites.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, port probe  (63)
+.venv/bin/python scratch/test_status.py             # counts, liveness, port probe  (65)
+.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion    (47)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```

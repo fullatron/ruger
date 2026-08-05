@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 538 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 587 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -71,7 +71,8 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 538 assertions.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, port probe    (63)
+.venv/bin/python scratch/test_status.py             # counts, liveness, port probe    (65)
+.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (47)
 cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -106,7 +107,10 @@ pkm/sync.py             ingest -> extract -> dedup -> rows
 pkm/server.py           stdlib http.server; board, notes and settings endpoints
 pkm/board.html          the whole UI. No React, no bundler, no build step
 pkm/status.py           board counts + timer liveness. Three renderings, one snapshot
+pkm/capture.py          a dictated line -> inbox -> tasks -> Notion (§10)
+pkm/prompts/extract_capture.md   captures get their own prompt. D14
 scripts/ruger.5m.sh     SwiftBar plugin. A wrapper, so the logic stays testable
+scripts/ruger-capture.sh the capture dialog. A text field, never a microphone
 ```
 
 ## Constraints that are easy to break by accident
@@ -374,6 +378,42 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   menu can be asserted in `test_status.py` instead of verified by squinting at
   the menu bar. Every menu line must stay one line — a stray newline makes
   SwiftBar render the rest as separate items.
+
+## Capture
+
+`pkm/capture.py`, §10 in the PRD. The menu bar opens a dialog, what you typed or
+dictated is written to `~/.pkm/inbox`, and the ordinary pipeline takes it from
+there. Nothing new reaches `events` (D2, for the third time).
+
+- **A capture is `source='meeting'`, `kind='capture'`.** `events.source` has a
+  `CHECK IN ('meeting','email','slack')`, and widening a SQLite CHECK means
+  rebuilding the table under a live database. `episodes.kind` has no constraint,
+  so this cost no migration. `kind` is now read from frontmatter by the inbox
+  connector and honoured by `episodes._episode_for_meeting`; absent, it falls
+  back to the old behaviour.
+- **Captures get their own prompt, and it is not a nicety.** The meeting prompt
+  drops anything with no named owner and anything that reads as an idea, so
+  "book the trade show banner" — a real task, dictated on purpose — dies under
+  it. `extract.prompt_for()` selects on kind.
+- **The quote floor moves for captures: 2 words / 6 characters, not 4 / 15.** A
+  capture is one sentence, and "book the banner" is three words. **The
+  contiguous-span requirement does not move** — that is what catches invention,
+  which is why this is a threshold and not an exemption. `extract.quote_floor()`
+  owns it, `revalidate_drops` carries `kind` through so re-checks use the same
+  floor the drop was judged by.
+- **`extract.field()` exists because an episode is three different shapes.** A
+  `sqlite3.Row` has no `.get()`, and `revalidate_drops` hands `validate` a
+  two-key dict with no `kind` at all. Reading it directly crashes on one of them.
+- **Push is scoped with `notion.push(only=…)`.** Push is O(board) by design so
+  local edits reach Notion, which is right on a timer and far too slow to sit
+  behind a notification. A capture sends its own rows only.
+- **A Notion outage must not lose the thought.** `capture._push` reports and
+  returns; the rows are already on the local board and the next push carries
+  them. Same for a provider outage: the note stays in the inbox and the next sync
+  retries it, so you lose the notification rather than the capture.
+- **Ruger records no audio (D12).** The dialog is a text field; dictation is
+  Wispr Flow's job or the OS's. Do not add a recorder without also picking a
+  transcription route — the model configured here is text-only.
 
 ## The Notion board
 

@@ -397,6 +397,82 @@ the contract this connector implements, not an incidental header.
 
 ---
 
+## 10. Capture — a task the moment you think of it
+
+The meeting path is retrospective: something was said, and Ruger finds it later.
+The gap it leaves is the thought you have walking away from the call. Capture
+closes it: one keystroke, say what needs doing, and it is in Notion before you
+have finished putting the laptop down.
+
+**D11 — a capture is just another note in the inbox.** The dictated text is
+written to `~/.pkm/inbox` and then read back through the ordinary connector, so
+ingest → extract → dedup → push is one path with one more producer on the front
+of it. No direct-to-Notion route, no second extractor, and the local board stays
+the place a bad reading gets fixed (D5). This is D2 holding for a third time,
+after the paste box and the Wispr importer.
+
+**D12 — the microphone is Wispr Flow's, not Ruger's.** The menu item opens a
+focused native dialog; you type into it, or hit your dictation shortcut and speak
+into it. Ruger records no audio, ships no audio anywhere, and needs no
+transcription model.
+
+That is not a workaround, it is the better design. The extraction model on this
+machine is `google/gemma-4-31B-it`, which is text-only, so audio would mean
+switching providers or carrying a local Whisper — a second model, a second
+failure mode, and a slower round trip, to reproduce a capability already running
+on the machine. Recording behind a flag stays available if a hands-free version
+is ever wanted; it is deliberately not built.
+
+*SwiftBar cannot host a text field or a live mic — its plugins are text output
+plus click actions. A dialog is the only seamless option available, which is why
+this is a dialog.*
+
+**D13 — straight through to Notion, then a notification.** Extract and push
+without asking, then say what happened: "2 tasks added". A confirmation step
+would add a click to the one flow whose entire value is that it is instant, and
+the correction surface already exists in two places. The accepted cost: a
+misheard word reaches Notion and is fixed there or on the board.
+
+**D14 — captures own their prompt, and their quote thresholds.**
+`prompts/extract_capture.md` is a separate file, because the meeting prompt is
+tuned to be ruthless about chatter — *not ideas raised, not things someone
+"should" do, drop anything with no named owner* — and a capture is the exact
+opposite: deliberate, terse, and usually unaddressed. Run through the meeting
+rules, "book the trade show banner" is an idea with no owner and gets dropped.
+
+Owner defaults to **me** unless a name is spoken: "send Maya the deck" is mine,
+"Maya is sending me the deck" is Maya's. §5's mine/theirs split stays meaningful
+without making you narrate pronouns.
+
+The quote minimums also have to move. §5 requires four words and fifteen
+characters, which is right for a transcript and wrong for a note that is one
+sentence long: "book the banner" is three words and would be dropped as
+`too_short`. For `kind='capture'` the floor is two words and six characters.
+**The contiguous-span requirement does not move** — that is the part that catches
+invention, and it is the reason this is a threshold change rather than an
+exemption.
+
+**D15 — `kind='capture'`, not a new `source`.** `events.source` is constrained to
+`meeting | email | slack`, and widening a SQLite `CHECK` means rebuilding the
+table under a live database. `episodes.kind` carries no constraint, so a capture
+is `source='meeting'`, `kind='capture'` at zero migration cost. D1's schema is
+untouched.
+
+### Subtasks — Phase 2, specced but not built
+
+A captured task often implies its own steps, and the context to break it down is
+already in the note. When this is built: **child to-do blocks in the Notion page
+body**, not sub-item relations and not extra rows.
+
+Sub-items would need the target database to have them enabled, which the API
+cannot do — the same class of assumption that put seven untitled cards on the
+first live board. Extra rows would multiply cards on both boards and need a
+parent column, so a schema change. Checklist blocks work on any database
+including a stock template, sit next to the evidence quote where they read as
+part of the record, and cost nothing to add later.
+
+---
+
 ## Build order
 
 | | | |
@@ -404,8 +480,11 @@ the contract this connector implements, not an incidental header.
 | **Step 1** | Ingest — `schema.sql`, `db.py`, inbox connector, `episodes.py` | **done** |
 | **Step 2** | Extraction — prompt + verbatim-quote validation + dedup | **done** |
 | **Step 3** | Server + board | **done** |
-| **Step 4** | Automate the Granola pull | not started |
+| **Step 4** | Automate the Granola pull | superseded by the Wispr importer |
 | **Step 5** | Notion push/pull | **done** |
+| **Step 6** | The timer, `pkm status`, the menu bar item | **done** |
+| **Step 7** | Capture (§10) — dialog → inbox → extract → Notion | **done** |
+| **Step 8** | Subtasks as checklist blocks (§10) | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

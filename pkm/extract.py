@@ -15,7 +15,9 @@ from pathlib import Path
 
 from . import config, dedup
 
-PROMPT_PATH = Path(__file__).resolve().parent / "prompts" / "extract_commitments.md"
+PROMPTS = Path(__file__).resolve().parent / "prompts"
+PROMPT_PATH = PROMPTS / "extract_commitments.md"
+CAPTURE_PROMPT_PATH = PROMPTS / "extract_capture.md"
 
 _SYSTEM_MARKER = re.compile(r"^#\s*=+\s*SYSTEM\s*=+\s*$", re.MULTILINE | re.IGNORECASE)
 _USER_MARKER = re.compile(r"^#\s*=+\s*USER\s*=+\s*$", re.MULTILINE | re.IGNORECASE)
@@ -24,6 +26,16 @@ _USER_MARKER = re.compile(r"^#\s*=+\s*USER\s*=+\s*$", re.MULTILINE | re.IGNORECA
 # fragments match by accident.
 MIN_QUOTE_WORDS = 4
 MIN_QUOTE_CHARS = 15
+
+# §10, D14. A capture is one sentence the user dictated at themselves, so the
+# transcript floor is wrong here: "book the banner" is three words and would be
+# dropped as too_short, taking a real task with it. Only the *minimum* moves —
+# the quote must still be one contiguous span of the note, which is the part that
+# catches invention.
+CAPTURE_MIN_QUOTE_WORDS = 2
+CAPTURE_MIN_QUOTE_CHARS = 6
+
+CAPTURE_KIND = "capture"
 
 COMMITMENT_SCHEMA = {
     "type": "object",
@@ -58,6 +70,36 @@ class ExtractionError(Exception):
 
 
 # --- prompt -----------------------------------------------------------------
+
+
+def field(episode, name: str, default=None):
+    """Read one field off an episode that may be a Row, a dict, or partial.
+
+    `sync.revalidate_drops` builds a two-key dict, and a Row has no `.get()`, so
+    neither `episode[name]` nor `episode.get(name)` is safe on its own.
+    """
+    if isinstance(episode, dict):
+        return episode.get(name, default)
+    try:
+        return episode[name] if name in episode.keys() else default
+    except (TypeError, AttributeError, IndexError, KeyError):
+        return default
+
+
+def is_capture(episode) -> bool:
+    return str(field(episode, "kind") or "").strip().lower() == CAPTURE_KIND
+
+
+def prompt_for(episode) -> Path:
+    """Which prompt file reads this episode (§10, D14)."""
+    return CAPTURE_PROMPT_PATH if is_capture(episode) else PROMPT_PATH
+
+
+def quote_floor(episode) -> tuple[int, int]:
+    """(min_words, min_chars) for the verbatim check on this episode."""
+    if is_capture(episode):
+        return CAPTURE_MIN_QUOTE_WORDS, CAPTURE_MIN_QUOTE_CHARS
+    return MIN_QUOTE_WORDS, MIN_QUOTE_CHARS
 
 
 def load_prompt(path: Path | None = None) -> tuple[str, str]:
@@ -149,15 +191,21 @@ def _loosen(text: str, *, markup: bool = False) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def verify_quote(quote: str, transcript: str) -> tuple[bool, str]:
+def verify_quote(quote: str, transcript: str, *, min_words: int | None = None,
+                 min_chars: int | None = None) -> tuple[bool, str]:
     """Check a quote really came from the transcript.
 
     Returns (ok, how), where `how` records how much normalising it took:
     exact | whitespace | markup | too_short | not_found. Each tier folds away a
     difference that copying introduces, without letting new words through.
+
+    The minimums are arguments because a capture's are lower (§10, D14). Every
+    other rule here is identical for every source.
     """
     quote = (quote or "").strip()
-    if len(quote) < MIN_QUOTE_CHARS or len(quote.split()) < MIN_QUOTE_WORDS:
+    floor_chars = MIN_QUOTE_CHARS if min_chars is None else min_chars
+    floor_words = MIN_QUOTE_WORDS if min_words is None else min_words
+    if len(quote) < floor_chars or len(quote.split()) < floor_words:
         return False, "too_short"
 
     if quote in transcript:
@@ -184,6 +232,7 @@ def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
     iteration can see exactly what the model got wrong.
     """
     transcript = episode["transcript"]
+    min_words, min_chars = quote_floor(episode)
     kept: list[dict] = []
     dropped: list[dict] = []
 
@@ -214,7 +263,8 @@ def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
             dropped.append(record)
             continue
 
-        ok, how = verify_quote(record.get("quote", ""), transcript)
+        ok, how = verify_quote(record.get("quote", ""), transcript,
+                               min_words=min_words, min_chars=min_chars)
         if not ok:
             record["_reason"] = f"quote {how}"
             dropped.append(record)
@@ -254,7 +304,7 @@ def call_model(episode: dict, provider=None) -> tuple[dict, dict]:
     """
     from .providers import ProviderError, get_provider
 
-    system, user_template = load_prompt()
+    system, user_template = load_prompt(prompt_for(episode))
     provider = provider or get_provider()
 
     try:

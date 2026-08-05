@@ -436,14 +436,21 @@ def _database() -> str:
 
 
 def push(conn: sqlite3.Connection, *, dry_run: bool = False,
-         limit: int | None = None) -> dict:
+         limit: int | None = None, only: set[int] | None = None) -> dict:
     """Send every commitment to Notion: create what is missing, update the rest.
 
     Idempotent by construction — the Notion page id is stored on the row, so a
     second push with no local changes creates nothing.
+
+    `only` narrows it to specific commitment ids. A capture uses that so one
+    dictated sentence costs one API call rather than a re-send of the whole
+    board: push is O(board) by design, which is fine on a timer and far too slow
+    to sit behind a notification.
     """
     database_id = _database()
     rows = db.commitments_to_push(conn)
+    if only is not None:
+        rows = [r for r in rows if int(r["id"]) in only]
     if limit:
         rows = rows[:limit]
 

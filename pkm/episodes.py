@@ -63,7 +63,10 @@ def _episode_for_meeting(
     episode = {
         "source": record["source"],
         "external_id": record["external_id"],
-        "kind": "meeting" if record["source"] == "meeting" else record["source"],
+        # An explicit `kind:` in the frontmatter wins, so a capture stays a
+        # capture through ingest. Absent, it falls back to the old behaviour.
+        "kind": record.get("kind") or (
+            "meeting" if record["source"] == "meeting" else record["source"]),
         "title": record["title"],
         "started_at": record["occurred_at"],
         "ended_at": None,

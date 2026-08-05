@@ -8,6 +8,7 @@
     python -m pkm drops           what the verbatim-quote check threw away
     python -m pkm doctor          check inbox, db, credentials
     python -m pkm status          board counts + whether the timer is alive
+    python -m pkm capture "..."   one dictated line -> tasks -> Notion
 
     python -m pkm notion          who the token is, and what it can see
     python -m pkm notion setup    create (or adopt) the Notion database
@@ -365,6 +366,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("drops", help="show what the quote check rejected")
     sub.add_parser("doctor", help="check configuration")
 
+    p_capture = sub.add_parser(
+        "capture", help="turn a dictated or typed line into tasks, and push them")
+    p_capture.add_argument("text", nargs="*", help="the note; reads stdin if absent")
+    p_capture.add_argument("--no-push", action="store_true",
+                           help="extract only, leave it for the next push")
+    p_capture.add_argument("--notify", action="store_true",
+                           help="report through a macOS notification (for the menu bar)")
+    p_capture.add_argument("--json", action="store_true", help="machine-readable")
+
     p_status = sub.add_parser("status", help="board counts and whether the timer is alive")
     p_status.add_argument("--json", action="store_true", help="machine-readable")
     p_status.add_argument("--swiftbar", action="store_true",
@@ -476,6 +486,37 @@ def main(argv: list[str] | None = None) -> int:
         if stats["written"] and not args.dry_run:
             print("\nnow run: .venv/bin/python -m pkm sync --push")
         return 0
+
+    if cmd == "capture":
+        from . import capture as capture_mod
+
+        text = " ".join(args.text).strip() if args.text else sys.stdin.read()
+        try:
+            result = capture_mod.run(text, push=not args.no_push)
+        except capture_mod.CaptureError as exc:
+            result = {"error": str(exc), "tasks": [], "merged": 0, "dropped": 0,
+                      "pushed": 0}
+
+        line = capture_mod.summarise(result)
+        if args.json:
+            import json as _json
+
+            print(_json.dumps({k: v for k, v in result.items() if k != "tasks"}
+                              | {"tasks": [t["task"] for t in result["tasks"]],
+                                 "summary": line}, indent=2))
+        else:
+            print(line)
+            for task in result["tasks"]:
+                due = f"  (due {task['due_date']})" if task["due_date"] else ""
+                print(f"  · {task['task']}{due}")
+            for drop in result.get("drops") or []:
+                print(f"  ! dropped [{drop['reason']}] {drop.get('task') or ''}")
+            if result.get("push_error"):
+                print(f"  ! Notion: {result['push_error']}")
+
+        if args.notify:
+            capture_mod.notify("Ruger", line)
+        return 1 if result.get("error") else 0
 
     if cmd == "status":
         from . import status as status_mod

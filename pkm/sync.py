@@ -237,7 +237,7 @@ def revalidate_drops(conn: sqlite3.Connection, *, apply: bool = False) -> dict:
 
     rows = conn.execute(
         """SELECT d.id, d.payload, d.reason, e.id AS episode_id, e.title, e.started_at,
-                  e.transcript
+                  e.transcript, e.kind
              FROM extraction_drops d
              JOIN episodes e ON e.id = d.episode_id
          ORDER BY d.id"""
@@ -251,7 +251,10 @@ def revalidate_drops(conn: sqlite3.Connection, *, apply: bool = False) -> dict:
             result["still_dropped"] += 1
             continue
 
-        episode = {"transcript": row["transcript"], "started_at": row["started_at"]}
+        # `kind` rides along so a capture's drops are re-checked against the
+        # thresholds that were applied to them (§10, D14), not a meeting's.
+        episode = {"transcript": row["transcript"], "started_at": row["started_at"],
+                   "kind": row["kind"]}
         kept, _ = extract.validate({"commitments": [payload]}, episode)
         if not kept:
             result["still_dropped"] += 1
