@@ -215,7 +215,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **717 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **721 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash
@@ -228,7 +228,7 @@ done
 | | |
 |---|---|
 | `test_ingest` `test_extraction` `test_providers` | ingest, the quote check, JSON salvage |
-| `test_ui` `test_tasks` `test_server` | notes, the read-only board, the endpoints |
+| `test_ui` `test_tasks` `test_server` | notes, the design rules, the read-only board, the endpoints |
 | `test_notion` `test_wispr` `test_capture` | push/pull, the importer, capture |
 | `test_status` `test_instruct` `test_capture_handoff` | the menu bar, instructions, the handoff contract |
 | `test_live` | a real provider call. **Costs tokens** |

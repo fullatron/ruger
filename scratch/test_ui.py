@@ -235,6 +235,35 @@ def main() -> None:
                        'X-Ruger', 'data-view="settings"'):
             check(f"page references {needle}", needle in html, True)
         check("no hardcoded task fixture", "const TASKS = [{" in html, False)
+
+        print("\nthe design rules CLAUDE.md says are easy to break by accident:")
+        import re as _re
+
+        # 1. Every colour token defined for dark needs a light counterpart. A
+        #    missing one silently inherits the dark value and goes unreadable.
+        dark = _re.search(r":root\s*\{(.*?)\}", html, _re.S).group(1)
+        light = _re.search(r':root\[data-theme="light"\]\s*\{(.*?)\}', html, _re.S).group(1)
+        colourish = _re.compile(r"(--[\w-]+):\s*(#|rgba?\()")
+        dark_tokens = {m.group(1) for m in colourish.finditer(dark)}
+        light_tokens = {m.group(1) for m in colourish.finditer(light)}
+        missing = sorted(t for t in dark_tokens - light_tokens
+                         if not t.startswith("--shadow"))
+        check("every colour token has a light counterpart", missing, [])
+
+        # 2. No colour emoji in the chrome. They ignore `color`, so they cannot
+        #    dim with their row or invert for light mode, and they read as clip
+        #    art next to 13px type.
+        chrome = html[html.index('<aside class="sidebar"'):html.index("</aside>")]
+        emoji = _re.findall(r"[\U0001F300-\U0001FAFF☀-➿️]", chrome)
+        check("the sidebar carries no emoji", emoji, [])
+        check("it uses inline svg instead", 'data-icon="activity"' in html, True)
+
+        # 3. Layout spacing comes from the scale. `padding` is exempt on purpose:
+        #    a control's internal padding is tuned to the 37px height invariant,
+        #    which is a deliberate optical value rather than a stray one.
+        oneoffs = _re.findall(r"(?:margin|gap):\s*(?:[\w()-]+\s+)*?(\d\d+)px", html)
+        check("no stray layout spacing outside the scale",
+              sorted({int(v) for v in oneoffs} - {12, 16, 24, 32, 48, 96, 120}), [])
     finally:
         notes.ingest_paths = original
         httpd.shutdown()

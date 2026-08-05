@@ -60,13 +60,13 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 717 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 721 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
 .venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (54)
 .venv/bin/python scratch/test_providers.py          # JSON salvage + shape check      (38)
-.venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF      (59)
+.venv/bin/python scratch/test_ui.py                 # ingest, sources, design rules  (63)
 .venv/bin/python scratch/test_tasks.py              # read-only board, merge-refresh  (66)
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (141)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
@@ -235,9 +235,12 @@ Alignments that are load-bearing, and how to check them:
 |---|---|
 | Sidebar tile, nav icons, footer icons share a left edge | all at `left: 16` |
 | Sidebar labels share a left edge | all at `left: 44` |
-| Column status chip is flush with its cards | both at `left: 336` (240 sidebar + 96 gutter) |
-| Card properties hang under the title, not the checkbox | `margin-left: 24px` = checkbox 16 + gap 8 |
+| The log stays inside one measure | `.log` is `708px`, matching `--measure` |
+| Time, rail and body line up in every row | grid `46px / 22px / 1fr` |
 | Every input is the same height | `37px` |
+
+*(The old "column chip flush at `left: 336`" and "card properties at
+`margin-left: 24`" invariants went with the kanban board in §12.)*
 
 Prefer flex/grid `gap` over per-element margins, and keep `align-content: start`
 on `.field` / `align-items: start` on `.two`: without them a field with no hint
@@ -245,6 +248,39 @@ line stretches its input to match a neighbour that has one.
 
 Verify by measuring, not squinting. Headless Chrome plus `--dump-dom` and a
 `getBoundingClientRect` script gives exact numbers; screenshots hide 2px errors.
+`?view=<page>` and `?theme=light` exist so every page and both themes can be
+rendered headlessly without clicking.
+
+**And measure at `--force-device-scale-factor=2` before concluding something is
+not drawing.** The timeline rail was declared broken off a 1x screenshot; it was
+painting correctly the whole time and was simply below the perceptual threshold.
+The measurement said so and the eye did not.
+
+### Rules the tests now enforce (`test_ui.py`)
+
+- **No colour emoji in the chrome.** An emoji ignores `color`, so it cannot dim
+  with its row or invert for light mode, and next to 13px type it reads as a
+  sticker. Icons are inline SVG inheriting `currentColor`, one stroke weight,
+  from the `ICONS` map. A stroked gear at 15px reads as a *sun* — sliders are
+  used for Settings instead.
+- **Every colour token needs a light counterpart.** This is asserted now, and it
+  immediately found `--blue-hover` missing, which had light mode inheriting the
+  dark hover colour.
+- **Layout spacing comes from the scale.** `margin` and `gap` only: a control's
+  internal `padding` is tuned to the 37px height invariant and is exempt.
+
+### Two things that bit during the log redesign
+
+- **A 1px vertical hairline needs more contrast than a full-width divider.**
+  `--border` (9.4% white) is right for a divider and invisible as a rail, hence
+  the separate `--rail` token at 17%.
+- **`align-self: stretch` on the rail cell is load-bearing.** The row sets
+  `align-items: start`, which collapses that cell to the height of the dot and
+  leaves nothing for the line to be drawn against.
+- **The log suppresses text that repeats.** `echoes()` drops a detail, a quote or
+  a source line that merely restates the task. Without it a capture entry showed
+  the same sentence four times, which reads as a rendering bug rather than as
+  data.
 
 ### Copy
 

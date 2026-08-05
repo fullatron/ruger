@@ -62,6 +62,9 @@
      they are invisible, which is what made cards read as flat placeholders. */
   --edge:          rgba(255,255,255,.11);
   --edge-hover:    rgba(255,255,255,.20);
+  /* A 1px vertical hairline needs more contrast than a full-width divider to
+     read at all: --border (9.4%) measured correct and was invisible. */
+  --rail:          rgba(255,255,255,.17);
   --shadow-sm:     0 1px 2px rgba(0,0,0,.28);
   --shadow-md:     0 4px 12px rgba(0,0,0,.34), 0 1px 3px rgba(0,0,0,.24);
   --shadow-lg:     0 16px 48px rgba(0,0,0,.50), 0 4px 12px rgba(0,0,0,.30);
@@ -100,7 +103,7 @@
   --active: rgba(55,53,47,.03);
   --text: rgb(55,53,47);  --text-2: rgba(55,53,47,.65);  --text-3: rgba(55,53,47,.4);
   --border: rgba(55,53,47,.09);  --border-strong: rgba(55,53,47,.16);
-  --blue:   #0b6e99; --blue-bg:   rgba(0,120,223,.12);
+  --blue:   #0b6e99; --blue-bg: rgba(0,120,223,.12); --blue-hover: #0a5f85;
   --purple: #6940a5; --purple-bg: rgba(103,36,222,.12);
   --green:  #0f7b6c; --green-bg:  rgba(0,135,107,.12);
   --red:    #e03e3e; --red-bg:    rgba(255,0,26,.09);
@@ -109,6 +112,7 @@
   /* Light mode inverts the logic: a darker edge, softer shadows. */
   --edge: rgba(15,15,15,.12);
   --edge-hover: rgba(15,15,15,.22);
+  --rail: rgba(15,15,15,.18);
   --shadow-sm: 0 1px 2px rgba(15,15,15,.06);
   --shadow-md: 0 4px 12px rgba(15,15,15,.10), 0 1px 3px rgba(15,15,15,.06);
   --shadow-lg: 0 16px 48px rgba(15,15,15,.16), 0 4px 12px rgba(15,15,15,.08);
@@ -172,8 +176,12 @@ nav { padding: var(--s1) var(--nav-pad); flex: 1; overflow-y: auto; }
 .nav-item[aria-current="page"] { background: var(--hover-strong); color: var(--text); }
 /* 20px matches .ws-tile, so icon and tile share a left and right edge. */
 .nav-item .ico {
-  font-size: 14px; width: 20px; flex: 0 0 20px; text-align: center; opacity: .85;
+  width: 20px; flex: 0 0 20px; display: flex; align-items: center;
+  justify-content: center; color: var(--text-3);
 }
+.nav-item:hover .ico, .nav-item[aria-current="page"] .ico { color: var(--text-2); }
+/* One size for every inline icon, set here rather than per site. */
+.ico svg { width: 15px; height: 15px; display: block; }
 .nav-item .count {
   margin-left: auto; font-size: 12px; color: var(--text-3);
   font-variant-numeric: tabular-nums;
@@ -193,28 +201,36 @@ nav { padding: var(--s1) var(--nav-pad); flex: 1; overflow-y: auto; }
   display: flex; align-items: center; gap: var(--s2); font-size: 14px;
   padding: 4px var(--s2); border-radius: var(--r-sm); color: var(--text);
 }
-.crumb .ico { font-size: 14px; }
+.crumb .ico { display: inline-flex; align-items: center; color: var(--text-3); }
+.crumb .ico svg { width: 14px; height: 14px; }
 .crumb-sep { color: var(--text-3); }
 .topbar .right { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 
 .scroll { flex: 1; overflow-y: auto; }
-.content { padding: 0 var(--gutter) 120px; }
+/* One column, one width, every page. Before this the log ran to 1330px while its
+   text stopped at 60%, so a row's link sat 700px from the row it belonged to. */
+.content {
+  padding: 0 var(--gutter) 120px; max-width: calc(var(--measure) + 240px);
+  /* Centred, like Notion's own page column. The old "flush at left: 336" rule
+     belonged to the kanban columns, which no longer exist. */
+  margin-inline: auto;
+}
 @media (max-width: 900px) { .content { padding: 0 var(--s5) 96px; } }
 
-/* line-height 1 on the icon is what kills the dead band under the emoji:
-   at 78px, default leading adds ~18px of invisible space. */
-.page-head { padding-top: var(--s5); }
-.page-icon {
-  font-size: 72px; line-height: 1; margin-bottom: var(--s3);
-  height: 72px; display: flex; align-items: flex-end;
+/* The header used to be a 72px colour emoji over a 40px title over two lines of
+   prose: 250px of chrome before any content, on a page you scan ten times a day.
+   The emoji also renders as full-colour clip art, which is the one thing Notion's
+   own chrome never does. It survives as a 14px glyph in the breadcrumb. */
+.page-head {
+  padding: var(--s5) 0 0; display: grid; gap: var(--s2);
 }
 h1 {
-  font-size: 40px; font-weight: 700; line-height: 1.15; letter-spacing: -.021em;
+  font-size: 26px; font-weight: 650; line-height: 1.2; letter-spacing: -.014em;
   margin: 0; text-wrap: balance;
 }
 .page-sub {
-  color: var(--text-2); font-size: 15px; line-height: 1.55;
-  margin: var(--s2) 0 0; max-width: 62ch;
+  color: var(--text-3); font-size: 13.5px; line-height: 1.5;
+  margin: 0; max-width: 66ch;
 }
 
 /* view bar: Notion puts view tabs on the left, controls on the right */
@@ -224,6 +240,7 @@ h1 {
 }
 .tab {
   border: 0; background: transparent; color: var(--text-2); font: inherit;
+  white-space: nowrap;
   font-size: 14px; font-weight: 500; padding: var(--s2) var(--s3); cursor: pointer;
   border-bottom: 2px solid transparent; margin-bottom: -1px;
   border-radius: var(--r-sm) var(--r-sm) 0 0; transition: background .12s, color .12s;
@@ -375,49 +392,78 @@ h1 {
 .chip.status-done  { background: var(--green-bg);  color: var(--green);  font-weight: 500; }
 .chip.link { color: var(--text-2); text-decoration: none; }
 .chip.link:hover { background: var(--hover-strong); color: var(--text); }
+/* Provenance, present but never competing with the task itself. */
+.chip.ghost { background: transparent; color: var(--text-3); padding-left: 0; }
 
-/* ---- the activity log ---- */
-.day + .day { margin-top: var(--s6); }
+/* ---- the activity log ----
+   A timeline: one rail down the day, a dot per entry, everything inside one
+   measure so a row's link never drifts away from the row. */
+.day + .day { margin-top: var(--s5); }
 .day-head {
-  font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
-  color: var(--text-3); margin-bottom: var(--s3);
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: baseline; gap: var(--s2);
+  font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-3); padding: var(--s3) 0 var(--s2);
+  background: linear-gradient(var(--bg) 72%, transparent);
 }
-.log { list-style: none; display: grid; gap: var(--s2); }
+.day-head .n {
+  font-size: 11px; letter-spacing: 0; color: var(--text-3); font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.log { list-style: none; max-width: var(--measure); }
 
 .ev {
-  display: grid; grid-template-columns: 52px 20px 1fr; align-items: start;
-  gap: var(--s2); padding: var(--s3); border-radius: var(--r-md);
-  border: 1px solid transparent;
+  position: relative;
+  display: grid; grid-template-columns: 46px 22px 1fr; align-items: start;
+  column-gap: var(--s2); padding: var(--s2) var(--s2) var(--s3) 0;
+  border-radius: var(--r-md);
 }
+/* The rail is drawn by the dot cell, so it joins entries without a wrapper.
+   `align-self: stretch` is load-bearing: the row sets `align-items: start`, which
+   collapses this cell to the dot's height and leaves nothing for the line. */
+.ev-rail {
+  position: relative; align-self: stretch; display: flex; justify-content: center;
+}
+.ev-rail::before {
+  content: ""; position: absolute; top: 18px; bottom: -12px; width: 1px;
+  background: var(--rail);
+}
+.ev:last-child .ev-rail::before { display: none; }
+.ev-dot {
+  position: relative; z-index: 1; width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 10px; line-height: 1;
+  background: var(--bg-elevated); border: 1px solid var(--edge); color: var(--text-3);
+}
+.ev.made .ev-dot  { color: var(--green);  border-color: var(--green); }
+.ev.moved .ev-dot { color: var(--blue);   border-color: var(--blue); }
+.ev.gone .ev-dot  { color: var(--red);    border-color: var(--red); }
+.ev.said .ev-dot  { color: var(--purple); border-color: var(--purple); }
+
 .ev[data-id] { cursor: pointer; }
-.ev[data-id]:hover { background: var(--hover); border-color: var(--edge); }
+.ev[data-id]:hover { background: var(--hover); }
 .ev[data-id]:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
 
 .ev-when {
   font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums;
-  padding-top: 1px;
+  text-align: right; padding-top: 3px;
 }
-.ev-mark { color: var(--text-3); font-size: 13px; text-align: center; }
-.ev.made .ev-mark  { color: var(--green); }
-.ev.moved .ev-mark { color: var(--blue); }
-.ev.gone .ev-mark  { color: var(--red); }
-
-.ev-body { min-width: 0; display: grid; gap: var(--s2); }
+.ev-body { min-width: 0; display: grid; gap: var(--s2); padding-top: 1px; }
 .ev-head {
   display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2);
-  font-size: 12px; color: var(--text-3);
+  font-size: 12px; line-height: 1.4;
 }
-.ev-what { color: var(--text-2); font-weight: 500; }
-.ev-detail { color: var(--text-3); }
-.ev-link { color: var(--text-3); text-decoration: none; margin-left: auto; }
-.ev-link:hover { color: var(--blue); }
-.ev-task { font-size: 14px; font-weight: 500; line-height: 1.4; }
+.ev-what { color: var(--text-2); font-weight: 500; white-space: nowrap; }
+/* One line. A long "what changed" must not out-shout the thing it changed. */
+.ev-detail {
+  color: var(--text-3); min-width: 0; flex: 1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ev-task { font-size: 14px; font-weight: 500; line-height: 1.45; }
 .ev-task.struck { color: var(--text-3); text-decoration: line-through; }
 /* What you said, rather than a task Ruger extracted: quieter, and quoted. */
 .ev.said .ev-task { font-weight: 400; color: var(--text-2); }
 .ev.said .ev-task::before { content: "“"; }
 .ev.said .ev-task::after  { content: "”"; }
-.ev.said .ev-mark { color: var(--purple); }
 
 /* Arrived while you were looking at the page. */
 .ev.fresh { animation: land 2.4s ease-out; }
@@ -659,26 +705,32 @@ td.actions { text-align: right; }
   border: 1px solid var(--edge); border-radius: var(--r-lg);
   background: var(--bg-elevated); box-shadow: var(--shadow-sm);
 }
-table { min-width: 640px; }
+table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: 14px; }
 thead tr { background: var(--active); }
-th:first-child, td:first-child { padding-left: var(--s4); }
-th:last-child,  td:last-child  { padding-right: var(--s4); }
+/* The note column absorbs the slack; every other column sizes to its content,
+   which is what stops a date wrapping onto two lines in a 90px cell. */
+th:first-child, td:first-child { width: 100%; padding-left: var(--s4); }
+th:last-child,  td:last-child  { padding-right: var(--s4); width: 1%; }
 tbody tr:last-child td { border-bottom: 0; }
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 th {
   text-align: left; font-size: 12px; font-weight: 500; color: var(--text-3);
-  padding: 0 var(--s4) var(--s2) 0; border-bottom: 1px solid var(--border);
-  white-space: nowrap;
+  padding: var(--s2) var(--s4) var(--s2) 0;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
 }
+th.num { text-align: right; }
 td {
   padding: var(--s3) var(--s4) var(--s3) 0; border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
-th:last-child, td:last-child { padding-right: 0; }
 tr:hover td { background: var(--active); }
-td.num { font-variant-numeric: tabular-nums; }
-.file { font-family: var(--mono); font-size: 12px; color: var(--text-3); margin-top: 2px; }
-.title-cell { display: flex; gap: 8px; align-items: flex-start; }
+td.num {
+  font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap;
+  color: var(--text-2);
+}
+.nowrap { white-space: nowrap; }
+.warn-ink { color: var(--yellow); }
+.row-title { line-height: 1.4; }
+.file { font-size: 12px; color: var(--text-3); margin-top: 2px; }
 
 /* ---------- side peek ---------- */
 #scrim {
@@ -798,36 +850,39 @@ td.num { font-variant-numeric: tabular-nums; }
 
     <nav>
       <button class="nav-item" data-view="board" aria-current="page">
-        <span class="ico">🧾</span> Activity <span class="count" id="c-board"></span>
+        <span class="ico" data-icon="activity"></span> Activity
+        <span class="count" id="c-board"></span>
       </button>
       <button class="nav-item" data-view="add">
-        <span class="ico">✏️</span> Add notes
+        <span class="ico" data-icon="pencil"></span> Add notes
       </button>
       <button class="nav-item" data-view="sources">
-        <span class="ico">🗂️</span> Sources <span class="count" id="c-src"></span>
+        <span class="ico" data-icon="folder"></span> Sources
+        <span class="count" id="c-src"></span>
       </button>
 
       <div class="nav-label">Workspace</div>
       <button class="nav-item" data-view="settings">
-        <span class="ico">⚙️</span> Settings
+        <span class="ico" data-icon="gear"></span> Settings
       </button>
     </nav>
 
     <div class="sidebar-foot">
-      <button class="nav-item" id="sync"><span class="ico">🔄</span> Sync inbox</button>
-      <button class="nav-item" id="theme"><span class="ico">🌙</span> Appearance</button>
+      <button class="nav-item" id="sync">
+        <span class="ico" data-icon="sync"></span> Sync inbox</button>
+      <button class="nav-item" id="theme">
+        <span class="ico" data-icon="moon"></span> Appearance</button>
     </div>
   </aside>
 
   <div class="main">
     <div class="topbar">
-      <div class="crumb"><span class="ico" id="crumb-ico">📋</span> <span id="crumb">Board</span></div>
+      <div class="crumb"><span class="ico" id="crumb-ico"></span> <span id="crumb">Activity</span></div>
       <div class="right" id="topbar-right"></div>
     </div>
     <div class="scroll">
       <div class="content">
         <header class="page-head">
-          <div class="page-icon" id="page-icon">📋</div>
           <h1 id="page-title">Board</h1>
           <p class="page-sub" id="page-sub"></p>
         </header>
@@ -852,6 +907,39 @@ td.num { font-variant-numeric: tabular-nums; }
 /* The LOCAL calendar date. `toISOString()` is UTC, so anywhere east of it the
    page spent the small hours calling yesterday "today" — which mislabels the log
    and makes a due date look overdue a few hours early. */
+/* ---------- icons ----------
+   Inline SVG, not emoji. An emoji in the chrome renders as full-colour clip art
+   that ignores `color`, so it cannot dim with its row, cannot invert for light
+   mode, and reads as a sticker next to 13px type. These inherit currentColor and
+   share one stroke weight, which is most of what makes a sidebar look drawn
+   rather than assembled. */
+const ICONS = {
+  activity: '<path d="M2 4.5h12M2 8h12M2 11.5h8"/>',
+  pencil: '<path d="M11.6 2.9a1.4 1.4 0 0 1 2 2L6 12.5l-3 .7.7-3z"/>',
+  folder: '<path d="M2 4.2A1.2 1.2 0 0 1 3.2 3h2.9l1.4 1.7h5.3A1.2 1.2 0 0 1 14 5.9v6A1.2 1.2 0 0 1 12.8 13H3.2A1.2 1.2 0 0 1 2 11.8z"/>',
+  /* Sliders, not a cog. A stroked gear at 15px reads as a sun: the teeth are
+     too short to register and the radial ticks look like rays. */
+  gear: '<path d="M2.6 4.8h10.8M2.6 11.2h10.8"/><circle cx="6" cy="4.8" r="1.7"/><circle cx="10.4" cy="11.2" r="1.7"/>',
+  sync: '<path d="M13.6 7a5.6 5.6 0 0 0-9.7-2.6L2 6.3M2.4 9a5.6 5.6 0 0 0 9.7 2.6L14 9.7"/><path d="M2 3v3.3h3.3M14 13V9.7h-3.3"/>',
+  moon: '<path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8a5.6 5.6 0 1 0 6.8 6.8z"/>',
+  file: '<path d="M9 1.8H4.6a1.2 1.2 0 0 0-1.2 1.2v10a1.2 1.2 0 0 0 1.2 1.2h6.8a1.2 1.2 0 0 0 1.2-1.2V5.2z"/><path d="M9 1.8v3.4h3.6"/>',
+};
+
+function icon(name) {
+  const path = ICONS[name];
+  if (!path) return "";
+  return `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor"
+     stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"
+     aria-hidden="true">${path}</svg>`;
+}
+
+/** Fill every `[data-icon]` placeholder. Called once the DOM is up. */
+function paintIcons(root = document) {
+  root.querySelectorAll("[data-icon]").forEach((el) => {
+    if (!el.firstChild) el.innerHTML = icon(el.dataset.icon);
+  });
+}
+
 const TODAY = (() => {
   const now = new Date();
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
@@ -861,23 +949,23 @@ const NEEDS_API = "0.4";   // must match server.py's API_VERSION
 
 const PAGES = {
   board: {
-    icon: "🧾", title: "Activity",
+    icon: "activity", title: "Activity",
     sub: "What Ruger sent to Notion, and what came back. Notion owns the tasks; this is the record, with the line that produced each one still attached.",
   },
   add: {
-    icon: "✏️", title: "Add notes",
+    icon: "pencil", title: "Add notes",
     sub: "Paste a meeting or drop files. Every note is saved to your inbox as markdown before it’s read, so the board can always be rebuilt from them.",
   },
   sources: {
-    icon: "🗂️", title: "Sources",
+    icon: "folder", title: "Sources",
     sub: "Everything stored, and what each meeting produced.",
   },
   settings: {
-    icon: "⚙️", title: "Settings",
+    icon: "gear", title: "Settings",
     sub: "Which model reads your meetings, and who it thinks you are.",
   },
   source: {
-    icon: "📄", title: "Source",
+    icon: "file", title: "Source",
     sub: "The note exactly as stored, and everything read out of it.",
   },
 };
@@ -945,15 +1033,17 @@ const loadSource = async (id) => { SOURCE = await api("GET", `/api/notes/${id}`)
    what was sent there and what came back — with the evidence still attached,
    which is the one thing Notion cannot show you (D5). Nothing here writes state. */
 
+/* Monochrome glyphs only. An emoji renders as full-colour clip art that ignores
+   `color`, which is why the dots could not be tinted by state. */
 const ACTIONS = {
   created:    { icon: "↗", label: "sent to Notion",  cls: "made" },
   resent:     { icon: "⟳", label: "content re-sent", cls: "" },
   status:     { icon: "↺", label: "status changed",  cls: "moved" },
   deleted:    { icon: "✕", label: "removed here",    cls: "gone" },
   merged:     { icon: "⇢", label: "merged",          cls: "" },
-  captured:   { icon: "🎙", label: "you captured",    cls: "said" },
-  instructed: { icon: "💬", label: "you said",        cls: "said" },
-  subtask:    { icon: "☑", label: "steps added",     cls: "made" },
+  captured:   { icon: "✎", label: "you captured",    cls: "said" },
+  instructed: { icon: "»", label: "you said",        cls: "said" },
+  subtask:    { icon: "✓", label: "steps added",     cls: "made" },
 };
 
 const FILTERS = {
@@ -980,30 +1070,56 @@ const clockOf = (iso) => {
     { hour: "2-digit", minute: "2-digit" });
 };
 
+/** Is this string just a restatement of that one? */
+const echoes = (a, b) => {
+  const norm = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const [x, y] = [norm(a), norm(b)];
+  return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
+};
+
+/** Where a task came from, minus the noise.
+ *  A capture's meeting title is literally "Capture · <the same text>", so the
+ *  source line was repeating the task back at you a third time. */
+function sourceOf(e) {
+  const meeting = String(e.meeting || "");
+  const label = /^capture\s*·/i.test(meeting) ? "Capture" : meeting;
+  return [e.speaker, label].filter(Boolean).filter((s) => !echoes(s, e.task));
+}
+
 function eventHTML(e) {
   const kind = ACTIONS[e.action] || { icon: "·", label: e.action, cls: "" };
   const overdue = e.due_date && e.due_date < TODAY && e.status !== "done";
+  // Detail earns its place only when it says something the label and the chips
+  // do not. "created → opened as todo" next to a `todo` chip is noise.
+  const detail = e.detail && !echoes(e.detail, kind.label)
+    && !echoes(e.detail, e.task) && !/^opened as/.test(e.detail) ? e.detail : "";
+  const source = sourceOf(e);
+  // Same rule for the quote: a capture's quote IS the task text. And on a
+  // `said` entry the detail already names the task it acted on, so showing that
+  // task's evidence underneath says the same thing a third time.
+  const quote = e.quote && !echoes(e.quote, e.task) && kind.cls !== "said"
+    ? e.quote : "";
+
   return `
   <li class="ev ${kind.cls} ${freshEvents.has(e.id) ? "fresh" : ""}"
       ${e.alive ? `data-id="${e.commitment_id}" tabindex="0"` : ""}>
     <div class="ev-when">${clockOf(e.at)}</div>
-    <div class="ev-mark" aria-hidden="true">${kind.icon}</div>
+    <div class="ev-rail" aria-hidden="true"><span class="ev-dot">${kind.icon}</span></div>
     <div class="ev-body">
       <div class="ev-head">
         <span class="ev-what">${kind.label}</span>
-        ${e.detail ? `<span class="ev-detail">${esc(e.detail)}</span>` : ""}
-        ${e.external_url ? `<a class="ev-link" href="${esc(e.external_url)}"
-             target="_blank" rel="noreferrer noopener">Open in Notion ↗</a>` : ""}
+        ${detail ? `<span class="ev-detail">${esc(detail)}</span>` : ""}
       </div>
       <div class="ev-task ${e.alive ? "" : "struck"}">${esc(e.task)}</div>
+      ${quote ? `<blockquote class="evidence">${esc(quote)}</blockquote>` : ""}
       <div class="props">
         ${e.alive && e.status ? `<span class="chip status-${e.status}">${e.status}</span>` : ""}
         ${e.alive && e.direction ? `<span class="chip person ${e.direction === "theirs" ? "theirs" : ""}">${e.direction === "mine" ? "Me" : esc(e.owner)}</span>` : ""}
         ${e.due_date ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(e.due_date)}</span>` : ""}
+        ${source.length ? `<span class="chip ghost">${source.map(esc).join(" · ")}</span>` : ""}
+        ${e.external_url ? `<a class="chip link" href="${esc(e.external_url)}"
+             target="_blank" rel="noreferrer noopener">Notion ↗</a>` : ""}
       </div>
-      ${e.quote ? `<blockquote class="evidence">${esc(e.quote)}
-        <span class="src">${[e.speaker, e.meeting].filter(Boolean).map(esc).join(" · ")}</span>
-      </blockquote>` : ""}
     </div>
   </li>`;
 }
@@ -1038,11 +1154,10 @@ function boardHTML() {
     <div class="viewbar">
       ${tabs.map(([k, l]) => `<button class="tab" data-filter="${k}"
          aria-pressed="${filter === k}">${l}</button>`).join("")}
-      <div class="right"><span class="lbl">Notion owns status. This is the record.</span></div>
     </div>
     ${shown.length ? days.map((d) => `
       <section class="day">
-        <h2 class="day-head">${esc(d.key)}</h2>
+        <h2 class="day-head">${esc(d.key)}<span class="n">${d.events.length}</span></h2>
         <ul class="log">${d.events.map(eventHTML).join("")}</ul>
       </section>`).join("")
       : `<p class="muted loading">Nothing matches that filter.</p>`}`;
@@ -1182,18 +1297,19 @@ const sourcesHTML = () => !NOTES.length
   : `<div class="table-wrap">
       <table>
         <thead><tr>
-          <th>Meeting</th><th>Date</th><th>Tasks</th><th>Dropped</th><th>Read by</th><th></th>
+          <th>Note</th><th class="num">Date</th><th class="num">Tasks</th><th></th>
         </tr></thead>
         <tbody>${NOTES.map((n) => `
           <tr class="clickable" data-source="${n.id}" tabindex="0">
-            <td><div class="title-cell"><span>📄</span><div>
+            <td>
               <div class="row-title">${esc(n.title || "Untitled")}</div>
-              <div class="file">${esc((n.raw_path || "").split("/").pop() || "")}${n.chars ? ` · ${n.chars.toLocaleString()} chars` : ""}</div>
-            </div></div></td>
-            <td class="num">${esc(n.started_at)}</td>
+              <div class="file">${n.chars ? `${n.chars.toLocaleString()} chars · ` : ""}${
+                n.extracted_at ? `read by ${esc(String(n.extraction_model || ""))}`
+                               : `<span class="warn-ink">not read yet</span>`}${
+                n.drops ? ` · <span class="warn-ink">${n.drops} dropped</span>` : ""}</div>
+            </td>
+            <td class="num nowrap">${esc(fmtDate(n.started_at))}</td>
             <td class="num">${n.commitments}</td>
-            <td class="num">${n.drops ? `<span class="chip date overdue">${n.drops}</span>` : `<span class="muted">0</span>`}</td>
-            <td>${n.extracted_at ? `<span class="chip">${esc(String(n.extraction_model || ""))}</span>` : `<span class="muted">not yet</span>`}</td>
             <td class="actions"><span class="chev">›</span></td>
           </tr>`).join("")}</tbody>
       </table>
@@ -1499,14 +1615,13 @@ async function browseModels() {
 function render() {
   const page = PAGES[view];
   const isSource = view === "source" && SOURCE;
-  $("#page-icon").textContent = page.icon;
   $("#page-title").textContent = isSource ? (SOURCE.note.title || "Untitled") : page.title;
   $("#page-sub").textContent = isSource ? page.sub : page.sub;
   $("#crumb").innerHTML = isSource
     ? `<a href="#" class="pick" data-goto="sources">Sources</a>
        <span class="crumb-sep">/</span> ${esc(SOURCE.note.title || "Untitled")}`
     : esc(page.title);
-  $("#crumb-ico").textContent = page.icon;
+  $("#crumb-ico").innerHTML = icon(page.icon);
 
   const navView = view === "source" ? "sources" : view;
   document.querySelectorAll(".nav-item[data-view]").forEach((b) => {
@@ -1921,7 +2036,23 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) poll
 
 checkServer();
 
-Promise.all([loadTasks(), loadEvents()]).then(render).catch((err) => {
+/* `?view=sources` opens straight to a page. Deep-linkable, and it is how the
+   layout gets measured in a headless browser rather than eyeballed. */
+paintIcons();
+
+const params = new URLSearchParams(location.search);
+// `?theme=light` so both themes can be rendered and compared headlessly. The
+// sidebar toggle remains the only way a person changes it.
+if (params.get("theme") === "light") {
+  document.documentElement.setAttribute("data-theme", "light");
+}
+
+const wanted = params.get("view");
+
+Promise.all([loadTasks(), loadEvents()]).then(() => {
+  if (wanted && wanted !== "board" && PAGES[wanted]) return goto(wanted);
+  render();
+}).catch((err) => {
   $("#root").innerHTML = `<div class="callout warn"><span class="ico">⚠️</span><div>
     Couldn’t reach the server: ${esc(err.message)}</div></div>`;
 });
