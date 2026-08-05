@@ -60,16 +60,18 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 450 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 530 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
-.venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (53)
+.venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (54)
 .venv/bin/python scratch/test_providers.py          # JSON salvage + provider select  (30)
 .venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF      (59)
 .venv/bin/python scratch/test_tasks.py              # manual tasks, merge-refresh     (59)
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
+.venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
+.venv/bin/python scratch/test_status.py             # counts + timer liveness         (55)
 cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -103,6 +105,8 @@ pkm/dedup.py            Jaccard over stopworded tokens (D4)
 pkm/sync.py             ingest -> extract -> dedup -> rows
 pkm/server.py           stdlib http.server; board, notes and settings endpoints
 pkm/board.html          the whole UI. No React, no bundler, no build step
+pkm/status.py           board counts + timer liveness. Three renderings, one snapshot
+scripts/ruger.5m.sh     SwiftBar plugin. A wrapper, so the logic stays testable
 ```
 
 ## Constraints that are easy to break by accident
@@ -128,9 +132,10 @@ pkm/board.html          the whole UI. No React, no bundler, no build step
 - **§8 — not in v0:** auto-closing loops, email, Slack, embeddings, the MCP
   server, notifications, digests. The MCP server is a Phase 2 wrapper over these
   same tables — do not scaffold it.
-  *Two items on that list were built anyway, on the owner's explicit
-  instruction: due-date editing and adding a task by hand. Everything else on it
-  still stands.*
+  *Three items on that list were built anyway, on the owner's explicit
+  instruction: due-date editing, adding a task by hand, and the menu bar item
+  (`pkm status`, which is a status readout rather than the notifications §8
+  rules out). Everything else on it still stands.*
 - **A pasted note becomes a file before it becomes a row.** `notes.save_note`
   writes into `~/.pkm/inbox` and then ingests through the ordinary connector, so
   there is still exactly one ingest path (D2) and the database stays derived.
@@ -346,6 +351,19 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
 - launchd will not start a second copy of the label while one is running, so a
   slow tick cannot overlap the next. A tick missed while the machine slept runs
   once on wake, not as a backlog.
+- **The heartbeat is the tick log's mtime, and nothing writes one on purpose.**
+  The tick prints a dated header on every wake, including the idle ones that
+  skip Notion, so `pkm status` reads liveness off that file's mtime. A heartbeat
+  a process has to remember to update is one that keeps reporting "alive" after
+  the interesting part has died. `STALE_AFTER` is 900s — three missed wakes,
+  which is where a slow machine stops being the explanation. A slept laptop is
+  the common false positive and it clears itself on the next wake.
+- **`pkm status --swiftbar` owns the menu's formatting, not the plugin.**
+  `scripts/ruger.5m.sh` resolves the repo through its own symlink and shells
+  into this. That keeps the plugin free of a `jq` dependency, and it is why the
+  menu can be asserted in `test_status.py` instead of verified by squinting at
+  the menu bar. Every menu line must stay one line — a stray newline makes
+  SwiftBar render the rest as separate items.
 
 ## The Notion board
 

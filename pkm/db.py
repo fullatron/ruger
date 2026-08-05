@@ -6,7 +6,7 @@ import hashlib
 import json
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from . import config
@@ -515,6 +515,39 @@ SELECT c.id,
           (c.due_date IS NULL), c.due_date,
           e.started_at DESC, c.id
 """
+
+
+def board_summary(conn: sqlite3.Connection, today: str | None = None) -> dict:
+    """Counts for `pkm status` and the menu bar item.
+
+    `SUM(<condition>)` returns NULL over zero rows rather than 0, so every value
+    is coerced — an empty board must read as zeros, not as None leaking into a
+    format string.
+    """
+    stamp = today or date.today().isoformat()
+    row = conn.execute(
+        """SELECT COUNT(*)                    AS total,
+                  SUM(status = 'todo')        AS todo,
+                  SUM(status = 'doing')       AS doing,
+                  SUM(status = 'done')        AS done,
+                  SUM(direction = 'mine')     AS mine,
+                  SUM(direction = 'theirs')   AS theirs,
+                  SUM(external_id IS NOT NULL) AS pushed,
+                  SUM(due_date IS NOT NULL AND due_date < ?
+                      AND status <> 'done')   AS overdue
+             FROM commitments""",
+        (stamp,),
+    ).fetchone()
+    episodes_row = conn.execute(
+        """SELECT COUNT(*) AS notes, MAX(extracted_at) AS last_extracted
+             FROM episodes"""
+    ).fetchone()
+
+    out = {key: int(row[key] or 0) for key in
+           ("total", "todo", "doing", "done", "mine", "theirs", "pushed", "overdue")}
+    out["notes"] = int(episodes_row["notes"] or 0)
+    out["last_extracted"] = episodes_row["last_extracted"]
+    return out
 
 
 def all_tasks(conn: sqlite3.Connection) -> list[dict]:

@@ -7,6 +7,7 @@
     python -m pkm serve           serve without syncing
     python -m pkm drops           what the verbatim-quote check threw away
     python -m pkm doctor          check inbox, db, credentials
+    python -m pkm status          board counts + whether the timer is alive
 
     python -m pkm notion          who the token is, and what it can see
     python -m pkm notion setup    create (or adopt) the Notion database
@@ -364,6 +365,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("drops", help="show what the quote check rejected")
     sub.add_parser("doctor", help="check configuration")
 
+    p_status = sub.add_parser("status", help="board counts and whether the timer is alive")
+    p_status.add_argument("--json", action="store_true", help="machine-readable")
+    p_status.add_argument("--swiftbar", action="store_true",
+                          help="SwiftBar menu format (see scripts/ruger.5m.sh)")
+
     p_reval = sub.add_parser(
         "revalidate",
         help="re-check stored drops against the current quote check (no model calls)")
@@ -469,6 +475,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  skipped {problem}")
         if stats["written"] and not args.dry_run:
             print("\nnow run: .venv/bin/python -m pkm sync --push")
+        return 0
+
+    if cmd == "status":
+        from . import status as status_mod
+
+        mode = "json" if args.json else "swiftbar" if args.swiftbar else "human"
+        with closing(db.connect()) as conn:
+            print(status_mod.render(conn, mode))
         return 0
 
     if cmd == "table":

@@ -89,6 +89,7 @@ open http://127.0.0.1:8765
 | `python -m pkm sync --push` | …and send the result to Notion |
 | `python -m pkm serve [--host --port]` | serve without syncing |
 | `python -m pkm table` | print the current board |
+| `python -m pkm status [--json]` | board counts, and whether the timer is still alive |
 | `python -m pkm drops` | what the verbatim-quote check rejected, and why |
 | `python -m pkm revalidate [--apply]` | re-check stored drops against the current checker. No model calls |
 | `python -m pkm wispr [--dry-run --limit N]` | Wispr Flow → inbox |
@@ -193,6 +194,45 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   are outside the protected set, so no Full Disk Access grant is needed.
 - launchd will not start a second copy of the label while one is running, so a
   slow tick cannot overlap the next.
+
+### Seeing it run
+
+A timer whose only evidence is a log file is a timer you stop trusting.
+`python -m pkm status` answers both questions at once:
+
+```
+board      11 commitments (7 to do, 0 doing, 4 done)
+           6 mine, 5 theirs
+notes      4, last extracted 2026-08-05T12:12:21+00:00
+notion     11 of 11 pushed
+timer      last tick 3 min ago
+```
+
+**The heartbeat is the mtime of the tick log**, not a file anything writes on
+purpose. The tick prints a dated header on every wake, including the idle ones
+that skip Notion, so a log that stopped moving means the agent stopped running. A
+heartbeat a process has to remember to update is one that keeps reporting "alive"
+after the interesting part has died.
+
+For a menu bar item, `scripts/ruger.5m.sh` is a [SwiftBar](https://swiftbar.app)
+plugin. A filled green `◉ 11` means it ticked recently; a hollow red `◌ 11` means
+the timer looks stopped, and the menu then shows the `launchctl kickstart` line
+that restarts it. The dropdown carries the counts, plus Open board, Run a tick
+now, and Open log.
+
+```bash
+brew install --cask swiftbar
+mkdir -p ~/.swiftbar-plugins
+ln -s "$PWD/scripts/ruger.5m.sh" ~/.swiftbar-plugins/ruger.5m.sh
+defaults write com.ameba.SwiftBar PluginDirectory -string "$HOME/.swiftbar-plugins"
+open -a SwiftBar
+```
+
+The `5m` in the filename is SwiftBar's refresh interval and matches the timer's
+own 300s, so the menu is never more than one tick out of date. All of the
+formatting is `pkm status --swiftbar`, which keeps the plugin a wrapper with no
+`jq` dependency and makes the menu assertable in a test rather than something you
+verify by squinting at the menu bar.
 
 ## The board
 
@@ -456,7 +496,9 @@ pkm/dedup.py             Jaccard over stopworded tokens
 pkm/sync.py              ingest -> extract -> dedup -> rows
 pkm/server.py            stdlib http.server; board, notes and settings endpoints
 pkm/board.html           the whole UI. No React, no bundler, no build step
+pkm/status.py            board counts + timer liveness; human, JSON and SwiftBar
 scripts/wispr-tick.sh    one tick of the unattended pipeline
+scripts/ruger.5m.sh      SwiftBar plugin. A wrapper over `pkm status --swiftbar`
 ```
 
 `pkm/board.html` follows Notion's dark UI deliberately, driven by custom
@@ -487,8 +529,8 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **475
-assertions** across nine suites.
+No framework — scripts that print PASS/FAIL and exit non-zero. **530
+assertions** across ten suites.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # idempotent ingest             (22)
@@ -499,6 +541,7 @@ assertions** across nine suites.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
+.venv/bin/python scratch/test_status.py             # counts + timer liveness       (55)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
