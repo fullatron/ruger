@@ -458,6 +458,27 @@ table under a live database. `episodes.kind` carries no constraint, so a capture
 is `source='meeting'`, `kind='capture'` at zero migration cost. D1's schema is
 untouched.
 
+**D16 — the menu bar item is a native app, because the box has to be there
+already.** SwiftBar was the first version and it could not get there: its plugins
+are text output plus click actions with no input widget, so capture was a second
+click into a separate window. `menubar/RugerBar.swift` is an `NSStatusItem` whose
+click opens a popover with the box focused and the counts underneath.
+
+It owns no logic. Counts come from `pkm status --json`, a capture goes to
+`pkm capture --notify`, and the test suite asserts the JSON keys the Swift reads —
+rename one and the app would quietly render zeros. That is what keeps a compiled
+component from becoming a second source of truth about the board.
+
+*This is the repo's only build step, and it stays optional: `pkm status` and
+`pkm capture` work without it. No app bundle, because a plain executable with an
+`.accessory` policy is already a menu bar app.*
+
+Also worth recording, because it looked like a limit and was not: AppleScript's
+`display dialog` gives a **one-line** field that scrolls sideways. Dictating a
+paragraph into it feels like hitting a character cap. The capture cap is 20,000
+characters — around 3,000 words — and exists only to keep a transcript-sized paste
+out of a single prompt.
+
 ### Subtasks — Phase 2, specced but not built
 
 A captured task often implies its own steps, and the context to break it down is
@@ -482,7 +503,7 @@ part of the record, and cost nothing to add later.
 | **Step 3** | Server + board | **done** |
 | **Step 4** | Automate the Granola pull | superseded by the Wispr importer |
 | **Step 5** | Notion push/pull | **done** |
-| **Step 6** | The timer, `pkm status`, the menu bar item | **done** |
+| **Step 6** | The timer, `pkm status`, the menu bar app | **done** |
 | **Step 7** | Capture (§10) — dialog → inbox → extract → Notion | **done** |
 | **Step 8** | Subtasks as checklist blocks (§10) | not started |
 

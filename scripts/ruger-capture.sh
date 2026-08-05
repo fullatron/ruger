@@ -16,12 +16,9 @@ PY="$REPO/.venv/bin/python"
 
 [ -x "$PY" ] || { osascript -e 'display notification "No interpreter in .venv" with title "Ruger"'; exit 1; }
 
-# `-e` twice rather than one script: keeps the AppleScript readable and avoids a
-# quoting maze. The dialog returns non-zero when cancelled, which is not an error.
-TEXT=$(osascript \
-  -e 'tell application "System Events" to activate' \
-  -e 'set answer to display dialog "What needs doing?" default answer "" with title "Ruger" buttons {"Cancel", "Capture"} default button "Capture"' \
-  -e 'text returned of answer' 2>/dev/null) || exit 0
+# A real multi-line box, not AppleScript's one-line `display dialog` field — see
+# capture-dialog.js. Cancel prints nothing, which is not an error.
+TEXT=$(osascript -l JavaScript "$REPO/scripts/capture-dialog.js" 2>/dev/null) || exit 0
 
 # Trim, so a stray space is treated as a cancel rather than an empty capture.
 case "$(printf '%s' "$TEXT" | tr -d '[:space:]')" in

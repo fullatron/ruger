@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 587 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 601 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -71,7 +71,7 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 587 assertions.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, port probe    (65)
+.venv/bin/python scratch/test_status.py             # counts, liveness, contract      (77)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (47)
 cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
@@ -108,9 +108,11 @@ pkm/server.py           stdlib http.server; board, notes and settings endpoints
 pkm/board.html          the whole UI. No React, no bundler, no build step
 pkm/status.py           board counts + timer liveness. Three renderings, one snapshot
 pkm/capture.py          a dictated line -> inbox -> tasks -> Notion (§10)
+menubar/RugerBar.swift  the menu bar app. Shells into pkm; owns no rules
 pkm/prompts/extract_capture.md   captures get their own prompt. D14
 scripts/ruger.5m.sh     SwiftBar plugin. A wrapper, so the logic stays testable
-scripts/ruger-capture.sh the capture dialog. A text field, never a microphone
+scripts/ruger-capture.sh the capture dialog, for the SwiftBar route
+scripts/capture-dialog.js a real multi-line box through the ObjC bridge
 ```
 
 ## Constraints that are easy to break by accident
@@ -372,6 +374,20 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   TCP connect, not an HTTP request: it answers the only question a link needs and
   cannot be confused by a slow first render. A link to a dead port is worse than
   no link, because the click fails in the browser with nothing to act on.
+- **The menu bar app owns no logic, and that is the point.** `menubar/RugerBar.swift`
+  shells into `pkm status --json` for counts and `pkm capture --notify` for a
+  capture, so the rules stay in Python where they are testable and the menu cannot
+  disagree with the board. `test_status.py` asserts the exact JSON keys the Swift
+  parses: rename one and the app renders zeros in silence.
+- **No app bundle.** A plain executable with `.accessory` activation policy is a
+  menu bar app already. A bundle would add signing and Info.plist upkeep for
+  something launchd starts, not Finder.
+- **`display dialog` cannot be the capture box.** AppleScript's field is ONE line
+  that scrolls sideways, which reads as a character limit when you dictate a
+  paragraph. `scripts/capture-dialog.js` builds an NSAlert with a real scrollable
+  NSTextView through the ObjC bridge — no compiler — and keeps a
+  `RUGER_DIALOG_SELFTEST` seam so the view hierarchy can be checked without a
+  modal appearing.
 - **`pkm status --swiftbar` owns the menu's formatting, not the plugin.**
   `scripts/ruger.5m.sh` resolves the repo through its own symlink and shells
   into this. That keeps the plugin free of a `jq` dependency, and it is why the

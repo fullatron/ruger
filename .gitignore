@@ -9,5 +9,9 @@ __pycache__/
 # macOS metadata: records the names of files in a directory, including deleted ones.
 .DS_Store
 
+# Compiled menu bar app. Rebuild with scripts/build-menubar.sh; a binary has no
+# business in the history.
+build/
+
 # Machine-local tool permissions. Personal to one checkout, not part of the project.
 .claude/settings.local.json

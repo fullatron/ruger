@@ -223,6 +223,22 @@ def main() -> None:
         check("json carries the tick", payload["tick"]["stale"], False)
         check("json is serialisable end to end", isinstance(payload["url"], str), True)
 
+        print("\n  and the menu bar app's contract holds:")
+        # menubar/RugerBar.swift parses these exact keys. Renaming one here would
+        # break the app silently — it would render zeros and nobody would know.
+        for key in ("total", "todo", "doing", "done", "overdue", "notes", "pushed"):
+            check(f"board.{key}", isinstance(payload["board"].get(key), int), True)
+        for key, kind in (("age", int), ("stale", bool)):
+            check(f"tick.{key}", isinstance(payload["tick"].get(key), kind), True)
+        check("serving", isinstance(payload.get("serving"), bool), True)
+        check("url", str(payload.get("url", "")).startswith("http"), True)
+
+        swift = ROOT / "menubar" / "RugerBar.swift"
+        check("the app reads the same keys it is handed",
+              all(f'"{k}"' in swift.read_text(encoding="utf-8")
+                  for k in ("total", "todo", "overdue", "stale", "serving", "url")),
+              True)
+
     print(f"\nOK — {PASSES['n']} assertions. Counts are right, and a stopped timer "
           f"is visible without reading a log.")
 

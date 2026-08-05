@@ -23,10 +23,14 @@ from pathlib import Path
 
 from . import config, db, episodes, notes, sync
 
-# A capture is a sentence, not a document. Longer than this and something has gone
-# wrong — a paste of a whole transcript belongs in the Add notes tab, where it is
-# stored as a meeting and read by the meeting prompt.
-MAX_CHARS = 4_000
+# Generous on purpose: a capture is often a paragraph, sometimes several, and
+# dictation runs long because talking is faster than typing. ~20k characters is
+# roughly 3,000 words, well past anything anyone dictates in one go.
+#
+# The cap is not a style rule, it is a context-window guard: the whole note goes
+# into one prompt, and a transcript-sized paste belongs in the Add notes tab where
+# it is stored as a meeting and read by the meeting prompt instead.
+MAX_CHARS = 20_000
 
 TITLE_WORDS = 8
 
@@ -65,8 +69,9 @@ def write_note(text: str, when: datetime | None = None,
         raise CaptureError("nothing was captured")
     if len(text) > MAX_CHARS:
         raise CaptureError(
-            f"that is {len(text):,} characters — captures are for a sentence or "
-            f"two. Use the Add notes tab for a transcript.")
+            f"that is {len(text):,} characters, over the {MAX_CHARS:,} a capture "
+            f"takes. Paste it into the Add notes tab instead, which stores it as a "
+            f"meeting.")
 
     when = when or datetime.now()
     root = Path(inbox or config.INBOX)

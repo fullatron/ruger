@@ -37,8 +37,9 @@ uv venv .venv
 uv pip install --python .venv/bin/python anthropic openai
 ```
 
-Python 3.14, stdlib only except those two SDKs. No Node, no bundler, no build
-step. Config comes from the process environment, falling back to a gitignored
+Python 3.14, stdlib only except those two SDKs. No Node, no bundler, and no build
+step for anything that matters — the menu bar app is a single optional `swiftc`
+call. Config comes from the process environment, falling back to a gitignored
 `.env` at the repo root; real env vars always win.
 
 The easiest route for the model settings is the **Settings** tab — pick a
@@ -111,9 +112,11 @@ markdown before anything becomes a row, so there is exactly one ingest path —
 which is why adding a source later is a connector and not a migration, and why
 nothing in the pipeline inserts straight into `events`.
 
-**Capture — a task the moment you think of it.** `⌘⇧R` from the menu bar opens a
-focused text box. Type, or hit your dictation shortcut and speak. Three seconds
-later a notification says "2 tasks added to Notion".
+**Capture — a task the moment you think of it.** One click on the menu bar icon
+and a focused box is already open. Type, or hit your dictation shortcut and speak;
+`⌘↩` captures. Three seconds later a notification says "2 tasks added to Notion".
+It takes a paragraph or several — up to 20,000 characters, which is about 3,000
+words.
 
 ```
 send maya the revised deck tomorrow and also book the trade show banner,
@@ -211,7 +214,7 @@ Maya: I'll send you the Beacon login today.
 
 ## The timer
 
-Two launchd agents, installed from templates so the paths match your checkout
+Three launchd agents, installed from templates so the paths match your checkout
 rather than someone else's home directory:
 
 ```bash
@@ -223,6 +226,7 @@ sh scripts/install-agents.sh --remove   # stop and remove both
 |---|---|
 | `ai.ruger.wispr` | `scripts/wispr-tick.sh` every 300s with `RunAtLoad`. One tick is import → sync → push → pull. Log: `~/.pkm/logs/wispr.log` |
 | `ai.ruger.board` | `pkm serve`, `RunAtLoad` and `KeepAlive`, so the board answers on 8765 for as long as you are logged in. Log: `~/.pkm/logs/board.log` |
+| `ai.ruger.menubar` | `build/RugerBar`, the menu bar app. Installed only once it has been built. Log: `~/.pkm/logs/menubar.log` |
 
 **The board needs its own agent.** The timer only imports and extracts; it never
 serves anything. Without `ai.ruger.board` nothing is listening on 8765, and every
@@ -272,16 +276,41 @@ that skip Notion, so a log that stopped moving means the agent stopped running. 
 heartbeat a process has to remember to update is one that keeps reporting "alive"
 after the interesting part has died.
 
-For a menu bar item, `scripts/ruger.5m.sh` is a [SwiftBar](https://swiftbar.app)
-plugin. A filled green `◉ 11` means it ticked recently; a hollow red `◌ 11` means
-the timer looks stopped, and the menu then shows the `launchctl kickstart` line
-that restarts it. The dropdown carries the counts, plus Run a tick now and Open
-log.
+### The menu bar app
 
-**Open board appears only when something is listening on the port.** The menu
-probes it with a TCP connect first, because a link to a dead port is worse than no
-link: the click just fails in the browser with nothing to act on. When the board
-is down the menu says so and offers to start it.
+`menubar/RugerBar.swift` — a filled green `◉ 11` when the timer ticked recently, a
+hollow red `◌ 11` when it looks stopped. **One click and the capture box is
+already there**, focused, in a popover rather than a window, with the counts
+underneath it.
+
+```bash
+sh scripts/build-menubar.sh     # -> build/RugerBar
+sh scripts/install-agents.sh    # picks it up and keeps it running at login
+```
+
+This is the repo's only build step and it stays optional: everything works without
+it through `pkm status` and `pkm capture`. It needs the Xcode command line tools
+for `swiftc` (`xcode-select --install`). No app bundle — a plain executable with an
+`.accessory` activation policy *is* a menu bar app, and a bundle would add signing
+and `Info.plist` upkeep for something launchd starts rather than Finder.
+
+**The app owns no logic.** Counts come from `pkm status --json` and a capture is
+handed to `pkm capture --notify`, so the rules stay in Python where they are
+testable and the menu cannot disagree with the board. `test_status.py` asserts the
+exact JSON keys the Swift parses, because renaming one would leave the app quietly
+rendering zeros.
+
+Open board is hidden unless something is listening on the port: a dead link is
+worse than no link, since the click just fails in the browser with nothing to act
+on.
+
+<details>
+<summary>SwiftBar plugin, the earlier version</summary>
+
+`scripts/ruger.5m.sh` renders the same data as a [SwiftBar](https://swiftbar.app)
+menu, via `pkm status --swiftbar`. It is kept because it needs no compiler, but it
+cannot host a text field — SwiftBar plugins are text output plus click actions — so
+capture is a second click and a separate dialog there.
 
 ```bash
 brew install --cask swiftbar
@@ -291,11 +320,8 @@ defaults write com.ameba.SwiftBar PluginDirectory -string "$HOME/.swiftbar-plugi
 open -a SwiftBar
 ```
 
-The `5m` in the filename is SwiftBar's refresh interval and matches the timer's
-own 300s, so the menu is never more than one tick out of date. All of the
-formatting is `pkm status --swiftbar`, which keeps the plugin a wrapper with no
-`jq` dependency and makes the menu assertable in a test rather than something you
-verify by squinting at the menu bar.
+The `5m` is SwiftBar's refresh interval, matching the timer's 300s.
+</details>
 
 ## The board
 
@@ -561,9 +587,11 @@ pkm/server.py            stdlib http.server; board, notes and settings endpoints
 pkm/board.html           the whole UI. No React, no bundler, no build step
 pkm/status.py            board counts + timer liveness; human, JSON and SwiftBar
 pkm/capture.py           a dictated line -> inbox -> tasks -> Notion
+menubar/RugerBar.swift   the menu bar app. Shells into pkm, owns no rules
 scripts/wispr-tick.sh    one tick of the unattended pipeline
 scripts/ruger.5m.sh      SwiftBar plugin. A wrapper over `pkm status --swiftbar`
-scripts/ruger-capture.sh the capture dialog. Text field, not a microphone
+scripts/ruger-capture.sh the capture dialog, for the SwiftBar route
+scripts/capture-dialog.js a real multi-line box, built through the ObjC bridge
 ```
 
 `pkm/board.html` follows Notion's dark UI deliberately, driven by custom
@@ -594,7 +622,7 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **587
+No framework — scripts that print PASS/FAIL and exit non-zero. **601
 assertions** across eleven suites.
 
 ```bash
@@ -606,7 +634,7 @@ assertions** across eleven suites.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, port probe  (65)
+.venv/bin/python scratch/test_status.py             # counts, liveness, contract    (77)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion    (47)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS

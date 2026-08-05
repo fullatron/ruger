@@ -100,8 +100,17 @@ def main() -> None:
 
     print("\nit refuses what is not a capture:")
     raises("empty", lambda: capture.write_note("   "), "nothing was captured")
-    raises("a whole transcript", lambda: capture.write_note("x " * 3000),
-           "captures are for a sentence")
+    raises("a whole transcript", lambda: capture.write_note("x " * 12_000),
+           "over the 20,000")
+
+    print("\n  but a long dictated paragraph is fine:")
+    long_note = ("I need to send Maya the revised deck and then chase Theo about "
+                 "the outstanding invoice. ") * 30           # ~3,900 characters
+    check("a few hundred words is accepted",
+          capture.write_note(long_note, when=WHEN,
+                             inbox=TMP / "long").exists(), True)
+    check("and the box is a real multi-line one, not a one-line field",
+          (ROOT / "scripts" / "capture-dialog.js").exists(), True)
 
     print("\nthe file is written verbatim, which §5 depends on:")
     path = capture.write_note(TEXT, when=WHEN, inbox=TMP / "inbox")
