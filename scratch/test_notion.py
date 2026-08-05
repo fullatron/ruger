@@ -404,22 +404,42 @@ def test_push_and_pull(conn):
     check("and a provenance line",
           "Weekly with Maya" in json.dumps(created["children"][1]), True)
 
-    print("\n  a second push creates nothing — this is the idempotency guarantee:")
+    print("\n  a second push touches nothing at all (§12):")
+    # Notion owns a page once it exists, so a re-push is not an update — it is a
+    # skip. Before this, push re-sent content every run and reverted anything
+    # edited in Notion within five minutes.
     STATE["creates"].clear()
+    STATE["patches"].clear()
     stats = notion.push(conn)
     check("created", stats["created"], 0)
-    check("updated", stats["updated"], 3)
+    check("updated", stats["updated"], 0)
+    check("skipped instead", stats["skipped"], 3)
     check("no new pages", len(STATE["creates"]), 0)
+    check("and no writes of any kind", len(STATE["patches"]), 0)
     check("page count unchanged", len(STATE["pages"]), 3)
 
-    print("\n  push never re-sends Status:")
-    # Stand in for a human dragging the card to Done in Notion.
+    print("\n  an edit made in Notion survives a push:")
     page_id = next(iter(STATE["pages"]))
+    title_prop = STATE["databases"][DB_ID]["title_prop"] if "title_prop" in \
+        STATE["databases"][DB_ID] else "Task"
+    STATE["pages"][page_id]["properties"]["Task"] = {
+        "title": [{"type": "text", "text": {"content": "Renamed by hand in Notion"},
+                   "plain_text": "Renamed by hand in Notion"}]}
     STATE["pages"][page_id]["properties"]["Status"] = {"select": {"name": "Done"}}
-    STATE["patches"].clear()
     notion.push(conn)
+    kept = STATE["pages"][page_id]["properties"]["Task"]["title"][0]["plain_text"]
+    check("the rename stuck", kept, "Renamed by hand in Notion")
+    check("and so did the status", status_of(STATE["pages"][page_id]), "Done")
+
+    print("\n  --resend is the deliberate override:")
+    STATE["patches"].clear()
+    stats = notion.push(conn, resend=True)
+    check("every page rewritten", stats["updated"], 3)
+    check("nothing skipped", stats["skipped"], 0)
     bodies = [p["body"].get("properties", {}) for p in STATE["patches"]]
-    check("no update mentioned Status", any("Status" in b for b in bodies), False)
+    check("content went out", any("Task" in b for b in bodies), True)
+    check("but even a resend leaves Status alone",
+          any("Status" in b for b in bodies), False)
     check("so the card is still Done", status_of(STATE["pages"][page_id]), "Done")
 
     print("\n  ...except for an id an instruction explicitly moved (§11):")
@@ -475,7 +495,8 @@ def test_push_and_pull(conn):
     STATE["creates"].clear()
     plan = notion.push(conn, dry_run=True)
     check("plan covers every row", len(plan["plan"]), 3)
-    check("all updates now", {p["action"] for p in plan["plan"]}, {"update"})
+    check("all of them skips, because Notion owns them now",
+          {p["action"] for p in plan["plan"]}, {"skip"})
     check("no writes were sent", len(STATE["patches"]) + len(STATE["creates"]), 0)
 
     STATE["pages"][page_id]["properties"]["Status"] = {"select": {"name": "To do"}}

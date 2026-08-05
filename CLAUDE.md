@@ -60,21 +60,21 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 663 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 681 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
 .venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (54)
 .venv/bin/python scratch/test_providers.py          # JSON salvage + shape check      (38)
 .venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF      (59)
-.venv/bin/python scratch/test_tasks.py              # manual tasks, merge-refresh     (59)
-.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (123)
+.venv/bin/python scratch/test_tasks.py              # read-only board, merge-refresh  (66)
+.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (130)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (49)
 .venv/bin/python scratch/test_instruct.py           # fuzzy dedup + instructions      (48)
-cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
+cd scratch && ../.venv/bin/python test_server.py    # the endpoints, and the log      (26)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
 
@@ -344,10 +344,10 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   `~/Library/Application Support/Wispr Flow` are both outside the protected set,
   so no Full Disk Access grant is needed anywhere. Verified: the agent reads
   Wispr's database with no permission prompt.
-- **The tick skips Notion when nothing changed.** `push` is O(board), not O(new
-  work) — it re-sends every row so local edits reach Notion — so an idle wake
-  every 5 minutes would otherwise be pure API traffic. The script reads the
-  import and sync output and exits early.
+- **The tick skips the PUSH when nothing changed, and always pulls.** They used
+  to share a gate, so an idle tick refreshed nothing — stale exactly when you are
+  working in Notion and not recording meetings. Pull is a single read-only query;
+  push is the expensive one and stays gated.
 - **No `set -e`.** Each stage is independent: a provider outage must not stop the
   push of what is already extracted, and a Notion outage must not undo an
   extraction.
@@ -479,6 +479,32 @@ there. Nothing new reaches `events` (D2, for the third time).
   read as wrong-shaped and raised. Both failed silently, one of them into a
   default. `base.shape_ok` and `base.array_key` read `required` from the schema; do
   not reintroduce a literal key.
+
+## One tracker, and a log (§12)
+
+The local board was a second task tracker that disagreed with Notion, because
+D9 makes status one-directional. It is a log now.
+
+- **Push creates and does not overwrite.** It used to re-send content to every
+  existing page on every run, so a card renamed in Notion was silently reverted
+  within five minutes. `push --resend` is the deliberate override. The accepted
+  cost: a better re-extraction, or a mention count going 1 → 2, no longer updates
+  a card that already exists.
+- **`PATCH /api/tasks/{id}` is gone and answers 405, not 404.** A stale page still
+  holds the old drag handlers, and "not found" sends you hunting for a routing
+  bug instead of reloading. The body says what happened.
+- **Status is still stored** as last known from Notion: `pull` refreshes it, the
+  menu bar counts it, and `open_commitments_for_owner` needs it to know which
+  rows dedup may still merge into. Do not remove the column.
+- **`sync_events` is deliberately not a foreign key,** and snapshots the task
+  text. A log has to outlive the thing it logs — a cascade would erase exactly
+  the "sent, then deleted" history you want.
+- **`db._backfill_log` runs once**, giving rows pushed before the log existed a
+  past. Without it the log opens empty on a board with a dozen cards already in
+  Notion, which reads as "nothing was ever sent".
+- **`TODAY` in `board.html` is the LOCAL date.** It was `toISOString()`, which is
+  UTC, so east of it the page spent the small hours calling yesterday "today" and
+  marking due dates overdue early.
 
 ## The Notion board
 

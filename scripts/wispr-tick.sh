@@ -44,14 +44,17 @@ case "$imported" in *"wrote 0"*)
   ;;
 esac
 
+# 3. commitments -> Notion. Creates the pages that are missing and touches
+#    nothing else: Notion owns a card once it exists.
 if [ "$changed" -eq 0 ]; then
-  echo "nothing changed; skipping Notion"
-  exit 0
+  echo "nothing new to push"
+else
+  "$PY" -m pkm push 2>&1 || printf '! push exited %s\n' "$?"
 fi
 
-# 3. commitments -> Notion. Content always; Status only when a page is created.
-"$PY" -m pkm push 2>&1 || printf '! push exited %s\n' "$?"
-
-# 4. Notion status -> local. No --prune: an automated sync must not archive
-#    anything, and an unreadable status is reported rather than guessed at.
+# 4. Notion status -> local, on EVERY tick, including the idle ones.
+#    This used to sit behind the same gate as push, which meant the local view
+#    only refreshed when new work arrived -- stale exactly when you are working
+#    in Notion and not recording meetings. It is one read-only query.
+#    Still no --prune: an automated sync must not archive anything.
 "$PY" -m pkm pull 2>&1 || printf '! pull exited %s\n' "$?"

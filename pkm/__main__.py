@@ -216,18 +216,24 @@ def report_push(stats: dict, dry_run: bool) -> None:
     if not stats["total"]:
         print("no commitments to push yet.")
         return
+    skipped = stats.get("skipped", 0)
     if dry_run:
-        print(f"{stats['total']} commitment(s) would go to Notion:\n")
-        for item in stats["plan"]:
-            verb = "CREATE" if item["action"] == "create" else "update"
+        planned = [i for i in stats["plan"] if i["action"] != "skip"]
+        if not planned:
+            print(f"nothing to send. {skipped} page(s) already exist, and Notion "
+                  f"owns them.")
+            return
+        print(f"{len(planned)} commitment(s) would go to Notion:\n")
+        for item in planned:
+            verb = {"create": "CREATE", "resend": "RESEND"}.get(item["action"], "status")
             print(f"  {verb:<6} {_w(item['task'], 56):<56} "
                   f"{_w(item['owner'], 12):<12} {item['due_date'] or '—'}")
         print(f"\n{stats['created']} new page(s), {stats['updated']} existing "
-              f"page(s) refreshed. Nothing was sent.")
+              f"page(s) touched, {skipped} left alone. Nothing was sent.")
         return
 
-    print(f"pushed {stats['total']} commitment(s): {stats['created']} created, "
-          f"{stats['updated']} updated"
+    print(f"{stats['created']} page(s) created, {stats['updated']} updated, "
+          f"{skipped} left alone (Notion owns them)"
           + (f", {stats['failed']} failed" if stats["failed"] else ""))
     for err in stats["errors"]:
         print(f"  ! {err}")
@@ -347,9 +353,12 @@ def main(argv: list[str] | None = None) -> int:
                           help="adopt an existing database instead (url or id)")
     p_nsetup.add_argument("--title", default="", help="database title")
 
-    p_push = sub.add_parser("push", help="send commitments to Notion")
+    p_push = sub.add_parser("push", help="create the Notion pages that are missing")
     p_push.add_argument("--dry-run", action="store_true", help="print, send nothing")
     p_push.add_argument("--limit", type=int, help="only the first N (a trial run)")
+    p_push.add_argument("--resend", action="store_true",
+                        help="also overwrite content on pages that already exist "
+                             "(normally Notion owns them)")
 
     p_pull = sub.add_parser("pull", help="bring status changes back from Notion")
     p_pull.add_argument("--dry-run", action="store_true", help="print, change nothing")
@@ -448,7 +457,8 @@ def main(argv: list[str] | None = None) -> int:
 
         with closing(db.connect()) as conn:
             try:
-                stats = notion.push(conn, dry_run=args.dry_run, limit=args.limit)
+                stats = notion.push(conn, dry_run=args.dry_run, limit=args.limit,
+                                    resend=args.resend)
             except notion.NotionError as exc:
                 print(f"! {exc}")
                 return 1

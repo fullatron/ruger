@@ -2,7 +2,7 @@
 
     GET    /                  board.html
     GET    /api/tasks         all commitments with meeting + evidence joined
-    PATCH  /api/tasks/{id}    {"status": "todo"|"doing"|"done"} — drag or checkbox
+    GET    /api/events        the log: what was sent to Notion, and what came back
     POST   /api/sync          inbox ingest -> extraction -> return count
 
     POST   /api/tasks         create a task by hand, attached to a meeting
@@ -21,6 +21,11 @@
     POST   /api/config/test   spend one tiny call to prove they work
     GET    /api/config/models list models an OpenAI-compatible endpoint serves
     POST   /api/config/reveal return the stored key in clear text (guarded)
+
+There is deliberately no PATCH here any more (§12). The board stopped being a
+second task tracker: Notion owns a card once it exists, and this page is the log
+of what was sent and what came back. Editing status locally only ever produced a
+number that disagreed with the one you were working from.
 
 Security. The server binds 127.0.0.1, but "localhost" is not a trust boundary:
 any page in your browser can POST to it. Since this process holds API keys,
@@ -51,7 +56,7 @@ MAX_BODY = 8 * 1024 * 1024      # uploads are inlined as JSON
 # serves the NEWEST page while still routing on the code it started with. The
 # page then calls endpoints that do not exist yet and fails in confusing ways.
 # Bump this whenever routes change; the page compares it and says so plainly.
-API_VERSION = "0.3"
+API_VERSION = "0.4"
 GUARD_HEADER = "X-Ruger"
 
 
@@ -137,6 +142,13 @@ class Handler(BaseHTTPRequestHandler):
             with closing(db.connect()) as conn:
                 return self._json(200, {"tasks": db.all_tasks(conn)})
 
+        if path == "/api/events":
+            limit = int((query.get("limit") or ["300"])[0] or 300)
+            with closing(db.connect()) as conn:
+                return self._json(200, {
+                    "events": db.recent_events(conn, min(max(limit, 1), 1000)),
+                })
+
         if path == "/api/notes":
             with closing(db.connect()) as conn:
                 return self._json(200, {
@@ -163,39 +175,16 @@ class Handler(BaseHTTPRequestHandler):
     # --- PATCH ------------------------------------------------------------
 
     def do_PATCH(self) -> None:
+        """Gone with §12, and answering plainly rather than 404ing.
+
+        A stale page still holds drag handlers, and "not found" would send
+        somebody hunting for a routing bug instead of restarting the server.
+        """
         if not self._guarded():
             return
-        self._guard_errors(self._do_patch)
-
-    def _do_patch(self) -> None:
-        match = _TASK_PATH.match(urlparse(self.path).path)
-        if not match:
-            return self._error(404, "not found")
-
-        payload = self._read_json()
-        task_id = int(match.group(1))
-        status = payload.get("status")
-        content = {k: payload[k] for k in db.EDITABLE_FIELDS if k in payload}
-
-        if status is not None and status not in ("todo", "doing", "done"):
-            return self._error(400, "status must be todo, doing or done")
-        if content.get("direction") not in (None, "mine", "theirs"):
-            return self._error(400, "direction must be mine or theirs")
-        if "task" in content and not str(content["task"]).strip():
-            return self._error(400, "the task cannot be empty")
-        if status is None and not content:
-            return self._error(400, "nothing to change")
-
-        with closing(db.connect()) as conn:
-            if db.get_commitment(conn, task_id) is None:
-                return self._error(404, "no such task")
-            with db.transaction(conn):
-                if content:
-                    db.update_commitment(conn, task_id, content)
-                if status is not None:
-                    db.set_status(conn, task_id, status)
-            task = next((t for t in db.all_tasks(conn) if t["id"] == task_id), None)
-        self._json(200, {"task": task})
+        self._error(
+            405, "the board is a log now: Notion owns a card once it exists. "
+                 "Reload the page if it still tries to edit tasks.")
 
     # --- PUT --------------------------------------------------------------
 
@@ -222,11 +211,21 @@ class Handler(BaseHTTPRequestHandler):
 
         match = _TASK_PATH.match(path)
         if match:
+            task_id = int(match.group(1))
             with closing(db.connect()) as conn:
+                row = db.get_commitment(conn, task_id)
+                if row is None:
+                    return self._error(404, "no such task")
                 with db.transaction(conn):
-                    if not db.delete_commitment(conn, int(match.group(1))):
-                        return self._error(404, "no such task")
-            return self._json(200, {"deleted": int(match.group(1))})
+                    db.delete_commitment(conn, task_id)
+                    # Logged after the fact, and the log outlives the row: "sent,
+                    # then removed" is exactly the history worth keeping.
+                    db.log_event(conn, "deleted", row["task"], commitment_id=task_id,
+                                 detail="removed here"
+                                 + (" (its Notion page is now orphaned)"
+                                    if row["external_id"] else ""),
+                                 external_url=row["external_url"])
+            return self._json(200, {"deleted": task_id})
 
         match = _NOTE_PATH.match(path)
         if not match:

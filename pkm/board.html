@@ -47,6 +47,7 @@
 
   --blue:          #2383e2;
   --blue-hover:    #0077d4;
+  --blue-bg:       rgba(0,120,223,.25);
 
   /* Notion chip colours. D3's mine/theirs distinction, expressed
      in Notion's own tag vocabulary. */
@@ -99,6 +100,7 @@
   --active: rgba(55,53,47,.03);
   --text: rgb(55,53,47);  --text-2: rgba(55,53,47,.65);  --text-3: rgba(55,53,47,.4);
   --border: rgba(55,53,47,.09);  --border-strong: rgba(55,53,47,.16);
+  --blue:   #0b6e99; --blue-bg:   rgba(0,120,223,.12);
   --purple: #6940a5; --purple-bg: rgba(103,36,222,.12);
   --green:  #0f7b6c; --green-bg:  rgba(0,135,107,.12);
   --red:    #e03e3e; --red-bg:    rgba(255,0,26,.09);
@@ -366,6 +368,55 @@ h1 {
    interesting thing here) without outshouting the task itself: coloured ink,
    faint ground, normal weight. */
 .chip.repeat { background: var(--yellow-bg); color: var(--yellow); font-weight: 500; }
+/* Status is read-only here — it is what Notion last told us (§12). Coloured so it
+   reads as information rather than as a control you can press. */
+.chip.status-todo  { background: var(--gray-chip); color: var(--text-2); }
+.chip.status-doing { background: var(--blue-bg);   color: var(--blue);   font-weight: 500; }
+.chip.status-done  { background: var(--green-bg);  color: var(--green);  font-weight: 500; }
+.chip.link { color: var(--text-2); text-decoration: none; }
+.chip.link:hover { background: var(--hover-strong); color: var(--text); }
+
+/* ---- the activity log ---- */
+.day + .day { margin-top: var(--s6); }
+.day-head {
+  font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--text-3); margin-bottom: var(--s3);
+}
+.log { list-style: none; display: grid; gap: var(--s2); }
+
+.ev {
+  display: grid; grid-template-columns: 52px 20px 1fr; align-items: start;
+  gap: var(--s2); padding: var(--s3); border-radius: var(--r-md);
+  border: 1px solid transparent;
+}
+.ev[data-id] { cursor: pointer; }
+.ev[data-id]:hover { background: var(--hover); border-color: var(--edge); }
+.ev[data-id]:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+
+.ev-when {
+  font-size: 12px; color: var(--text-3); font-variant-numeric: tabular-nums;
+  padding-top: 1px;
+}
+.ev-mark { color: var(--text-3); font-size: 13px; text-align: center; }
+.ev.made .ev-mark  { color: var(--green); }
+.ev.moved .ev-mark { color: var(--blue); }
+.ev.gone .ev-mark  { color: var(--red); }
+
+.ev-body { min-width: 0; display: grid; gap: var(--s2); }
+.ev-head {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s2);
+  font-size: 12px; color: var(--text-3);
+}
+.ev-what { color: var(--text-2); font-weight: 500; }
+.ev-detail { color: var(--text-3); }
+.ev-link { color: var(--text-3); text-decoration: none; margin-left: auto; }
+.ev-link:hover { color: var(--blue); }
+.ev-task { font-size: 14px; font-weight: 500; line-height: 1.4; }
+.ev-task.struck { color: var(--text-3); text-decoration: line-through; }
+/* The log's own rows already indent under the mark, so the card-face offset the
+   board used would double up. */
+.ev .evidence { margin-left: 0; }
+.ev .props { margin: 0; }
 
 /* Notion quote block: 3px rule, no italics, secondary ink. */
 .evidence {
@@ -561,7 +612,13 @@ tr.clickable:hover .chev { color: var(--text); }
 .key-row input { font-family: var(--mono); font-size: 13px; }
 .key-row .btn { flex: 0 0 auto; }
 
-/* ---------- editable task panel ---------- */
+/* ---------- task detail panel ---------- */
+/* Read-only since §12: the panel shows the evidence and links out, it does not
+   edit. Same type as the old editable title so the panel did not change shape. */
+.peek-title-static {
+  font-size: 28px; font-weight: 700; letter-spacing: -.018em; line-height: 1.25;
+  color: var(--text); margin: 0 0 var(--s4);
+}
 .peek-title {
   width: 100%; font: inherit; font-size: 28px; font-weight: 700;
   letter-spacing: -.018em; line-height: 1.25; color: var(--text);
@@ -728,7 +785,7 @@ td.num { font-variant-numeric: tabular-nums; }
 
     <nav>
       <button class="nav-item" data-view="board" aria-current="page">
-        <span class="ico">📋</span> Board <span class="count" id="c-board"></span>
+        <span class="ico">🧾</span> Activity <span class="count" id="c-board"></span>
       </button>
       <button class="nav-item" data-view="add">
         <span class="ico">✏️</span> Add notes
@@ -779,18 +836,20 @@ td.num { font-variant-numeric: tabular-nums; }
 <script>
 "use strict";
 
-const COLUMNS = [
-  { key: "todo",  label: "To do" },
-  { key: "doing", label: "Doing" },
-  { key: "done",  label: "Done"  },
-];
-const TODAY = new Date().toISOString().slice(0, 10);
-const NEEDS_API = "0.3";   // must match server.py's API_VERSION
+/* The LOCAL calendar date. `toISOString()` is UTC, so anywhere east of it the
+   page spent the small hours calling yesterday "today" — which mislabels the log
+   and makes a due date look overdue a few hours early. */
+const TODAY = (() => {
+  const now = new Date();
+  return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+    .toISOString().slice(0, 10);
+})();
+const NEEDS_API = "0.4";   // must match server.py's API_VERSION
 
 const PAGES = {
   board: {
-    icon: "📋", title: "Board",
-    sub: "Commitments people made out loud. Yours are purple, other people’s are green. Every card carries the line that produced it.",
+    icon: "🧾", title: "Activity",
+    sub: "What Ruger sent to Notion, and what came back. Notion owns the tasks; this is the record, with the line that produced each one still attached.",
   },
   add: {
     icon: "✏️", title: "Add notes",
@@ -811,12 +870,12 @@ const PAGES = {
 };
 
 let TASKS = [];
+let EVENTS = [];          // the log: what went to Notion, and what came back
 let NOTES = [];
 let CONFIG = null;
 let SOURCE = null;        // the open source's transcript, tasks and drops
 let peekId = null;        // task open in the side panel
 let view = "board";
-let group = "none";
 let filter = "all";
 let fresh = new Set();
 let loadError = null;
@@ -858,121 +917,111 @@ async function api(method, path, body) {
 }
 
 const loadTasks  = async () => { TASKS = (await api("GET", "/api/tasks")).tasks || []; };
+const loadEvents = async () => { EVENTS = (await api("GET", "/api/events")).events || []; };
 const loadNotes  = async () => { NOTES = (await api("GET", "/api/notes")).notes || []; };
 const loadConfig = async () => { CONFIG = await api("GET", "/api/config"); };
 const loadSource = async (id) => { SOURCE = await api("GET", `/api/notes/${id}`); };
 
-/* ---------- board ---------- */
+/* ---------- activity log (§12) ----------
+   Not a task board. Notion owns a card once it exists, so this is the record of
+   what was sent there and what came back — with the evidence still attached,
+   which is the one thing Notion cannot show you (D5). Nothing here writes state. */
 
-async function move(id, status) {
-  const task = TASKS.find((t) => t.id === id);
-  if (!task || task.status === status) return;
-  const previous = task.status;
-  task.status = status; task._pending = true;
-  render();
-  try {
-    const updated = await api("PATCH", `/api/tasks/${id}`, { status });
-    Object.assign(task, updated.task || {}, { _pending: false });
-  } catch (err) {
-    task.status = previous; task._pending = false;
-    toast(`Couldn’t save that move: ${err.message}`);
-  }
-  render();
-}
-
-const visible = () => TASKS.filter((t) => filter === "all" || t.direction === filter);
-
-/** Grouping only changes the lanes — all three views share one renderer (D7). */
-function lanes(tasks) {
-  if (group === "none") return [{ key: "all", label: null, tasks }];
-  const keyOf = (t) => group === "meeting"
-    ? (t.meeting || "Untitled meeting")
-    : (t.direction === "mine" ? "Me" : (t.owner || "Unassigned"));
-  const buckets = new Map();
-  for (const t of tasks) {
-    const k = keyOf(t);
-    if (!buckets.has(k)) buckets.set(k, []);
-    buckets.get(k).push(t);
-  }
-  return [...buckets.entries()].sort((a, b) => {
-    if (group === "meeting") {
-      const da = a[1][0].meeting_date || "", db_ = b[1][0].meeting_date || "";
-      if (da !== db_) return db_.localeCompare(da);
-    }
-    if (a[0] === "Me") return -1;
-    if (b[0] === "Me") return 1;
-    return a[0].localeCompare(b[0]);
-  }).map(([label, ts]) => ({ key: label, label, tasks: ts }));
-}
-
-function cardHTML(t) {
-  const overdue = t.due_date && t.due_date < TODAY && t.status !== "done";
-  const repeat = t.mention_count > 1;
-  return `
-  <article class="card ${t.status === "done" ? "done" : ""} ${t._pending ? "pending" : ""} ${fresh.has(t.id) ? "fresh" : ""}"
-           draggable="true" data-id="${t.id}" tabindex="0" aria-label="${esc(t.task)}">
-    <div class="card-top">
-      <input type="checkbox" class="check" ${t.status === "done" ? "checked" : ""}
-             aria-label="Mark done" data-check="${t.id}">
-      <div class="title">${esc(t.task)}</div>
-    </div>
-    <div class="props">
-      <span class="chip person ${t.direction === "theirs" ? "theirs" : ""}">${t.direction === "mine" ? "Me" : esc(t.owner)}</span>
-      ${t.due_date ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(t.due_date)}</span>` : ""}
-      ${repeat ? `<span class="chip repeat" title="Raised in ${t.mention_count} meetings">${t.mention_count}× raised</span>` : ""}
-    </div>
-    <blockquote class="evidence">${esc(t.quote)}
-      <span class="src">${[t.speaker, t.meeting].filter(Boolean).map(esc).join(" · ")}</span>
-    </blockquote>
-  </article>`;
-}
-
-const columnHTML = (lane, col) => {
-  const tasks = lane.tasks.filter((t) => t.status === col.key);
-  return `
-  <section class="col">
-    <div class="col-head">
-      <span class="status" data-s="${col.key}"><span class="dot"></span>${col.label}</span>
-      <span class="n">${tasks.length}</span>
-    </div>
-    <div class="drop" data-status="${col.key}">
-      ${tasks.length ? tasks.map(cardHTML).join("")
-                     : `<div class="empty-col">Drop a card here</div>`}
-    </div>
-  </section>`;
+const ACTIONS = {
+  created: { icon: "↗", label: "sent to Notion",  cls: "made" },
+  resent:  { icon: "⟳", label: "content re-sent", cls: "" },
+  status:  { icon: "↺", label: "status changed",  cls: "moved" },
+  deleted: { icon: "✕", label: "removed here",    cls: "gone" },
+  merged:  { icon: "⇢", label: "merged",          cls: "" },
 };
 
+const FILTERS = {
+  all:     () => true,
+  created: (e) => e.action === "created",
+  status:  (e) => e.action === "status",
+};
+
+/** Local midnight, so "Today" means today where you are rather than in UTC. */
+function dayKey(iso) {
+  const when = new Date(iso);
+  if (isNaN(when)) return iso.slice(0, 10);
+  const midnight = new Date(when.getFullYear(), when.getMonth(), when.getDate());
+  const days = Math.round((new Date(TODAY + "T00:00:00") - midnight) / 86400000);
+  if (days <= 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return when.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+}
+
+const clockOf = (iso) => {
+  const when = new Date(iso);
+  return isNaN(when) ? "" : when.toLocaleTimeString(undefined,
+    { hour: "2-digit", minute: "2-digit" });
+};
+
+function eventHTML(e) {
+  const kind = ACTIONS[e.action] || { icon: "·", label: e.action, cls: "" };
+  const overdue = e.due_date && e.due_date < TODAY && e.status !== "done";
+  return `
+  <li class="ev ${kind.cls}" ${e.alive ? `data-id="${e.commitment_id}" tabindex="0"` : ""}>
+    <div class="ev-when">${clockOf(e.at)}</div>
+    <div class="ev-mark" aria-hidden="true">${kind.icon}</div>
+    <div class="ev-body">
+      <div class="ev-head">
+        <span class="ev-what">${kind.label}</span>
+        ${e.detail ? `<span class="ev-detail">${esc(e.detail)}</span>` : ""}
+        ${e.external_url ? `<a class="ev-link" href="${esc(e.external_url)}"
+             target="_blank" rel="noreferrer noopener">Open in Notion ↗</a>` : ""}
+      </div>
+      <div class="ev-task ${e.alive ? "" : "struck"}">${esc(e.task)}</div>
+      <div class="props">
+        ${e.alive && e.status ? `<span class="chip status-${e.status}">${e.status}</span>` : ""}
+        ${e.alive && e.direction ? `<span class="chip person ${e.direction === "theirs" ? "theirs" : ""}">${e.direction === "mine" ? "Me" : esc(e.owner)}</span>` : ""}
+        ${e.due_date ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(e.due_date)}</span>` : ""}
+      </div>
+      ${e.quote ? `<blockquote class="evidence">${esc(e.quote)}
+        <span class="src">${[e.speaker, e.meeting].filter(Boolean).map(esc).join(" · ")}</span>
+      </blockquote>` : ""}
+    </div>
+  </li>`;
+}
+
 function boardHTML() {
-  if (!TASKS.length) {
+  if (!EVENTS.length) {
     return `
     <div class="blank">
-      <h2>Nothing promised yet</h2>
-      <p>Add a meeting and Ruger pulls out what people committed to. Anything it
-         can’t back up with a quote from your notes gets dropped.</p>
+      <h2>Nothing has gone to Notion yet</h2>
+      <p>Add a meeting, or capture a task from the menu bar. Ruger pulls out what
+         people committed to, drops anything it can’t back up with a quote, and
+         sends the rest to Notion. What happened shows up here.</p>
       <div class="row">
         <button class="btn primary" data-goto="add">Add a meeting note</button>
         <button class="btn outline" id="sync2">Sync inbox</button>
       </div>
     </div>`;
   }
-  const tabs = [["all", "All"], ["mine", "Mine"], ["theirs", "Theirs"]];
-  const groups = [["none", "None"], ["meeting", "Meeting"], ["owner", "Person"]];
+
+  const tabs = [["all", "Everything"], ["created", "Sent"], ["status", "Status changes"]];
+  const shown = EVENTS.filter(FILTERS[filter] || FILTERS.all);
+
+  const days = [];
+  for (const e of shown) {
+    const key = dayKey(e.at);
+    if (!days.length || days[days.length - 1].key !== key) days.push({ key, events: [] });
+    days[days.length - 1].events.push(e);
+  }
+
   return `
     <div class="viewbar">
-      ${tabs.map(([k, l]) => `<button class="tab" data-filter="${k}" aria-pressed="${filter === k}">${l}</button>`).join("")}
-      <div class="right">
-        <span class="lbl">Group by</span>
-        <span class="seg">${groups.map(([k, l]) =>
-          `<button class="btn" data-group="${k}" aria-pressed="${group === k}">${l}</button>`).join("")}</span>
-      </div>
+      ${tabs.map(([k, l]) => `<button class="tab" data-filter="${k}"
+         aria-pressed="${filter === k}">${l}</button>`).join("")}
+      <div class="right"><span class="lbl">Notion owns status. This is the record.</span></div>
     </div>
-    <div class="board">
-      ${lanes(visible()).map((lane) => `
-        <div class="lane">
-          ${lane.label ? `<h2 class="lane-head">${esc(lane.label)}<span class="n">${lane.tasks.length}</span></h2>` : ""}
-          <div class="cols">${COLUMNS.map((c) => columnHTML(lane, c)).join("")}</div>
-        </div>`).join("")}
-    </div>`;
+    ${shown.length ? days.map((d) => `
+      <section class="day">
+        <h2 class="day-head">${esc(d.key)}</h2>
+        <ul class="log">${d.events.map(eventHTML).join("")}</ul>
+      </section>`).join("")
+      : `<p class="muted loading">Nothing matches that filter.</p>`}`;
 }
 
 /* ---------- add notes ---------- */
@@ -1190,17 +1239,16 @@ function taskRowHTML(t) {
   const label = { todo: "To do", doing: "Doing", done: "Done" }[t.status];
   return `
   <div class="task-row ${t.status === "done" ? "done" : ""}" data-id="${t.id}" tabindex="0">
-    <input type="checkbox" class="check" ${t.status === "done" ? "checked" : ""}
-           aria-label="Mark done" data-check="${t.id}">
     <div class="task-row-main">
       <div class="t">${esc(t.task)}</div>
       <div class="props">
         <span class="chip person ${t.direction === "theirs" ? "theirs" : ""}">${t.direction === "mine" ? "Me" : esc(t.owner)}</span>
-        <span class="chip">${label}</span>
+        <span class="chip status-${esc(t.status)}">${label}</span>
         ${t.due_date ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(t.due_date)}</span>` : ""}
         ${t.mention_count > 1 ? `<span class="chip repeat">${t.mention_count}× raised</span>` : ""}
-        ${t.origin === "manual" ? `<span class="chip">added by hand</span>`
-                                : t.edited ? `<span class="chip">edited</span>` : ""}
+        ${t.origin === "manual" ? `<span class="chip">added by hand</span>` : ""}
+        ${t.external_url ? `<a class="chip link" href="${esc(t.external_url)}"
+             target="_blank" rel="noreferrer noopener">Notion ↗</a>` : ""}
       </div>
     </div>
     <button class="btn" data-open-task="${t.id}" title="Open">Open</button>
@@ -1450,12 +1498,14 @@ function render() {
 
   const open = TASKS.filter((t) => t.status !== "done").length;
   const overdue = TASKS.filter((t) => t.due_date && t.due_date < TODAY && t.status !== "done").length;
-  $("#c-board").textContent = TASKS.length ? open : "";
+  const pushed = TASKS.filter((t) => t.external_url).length;
+  $("#c-board").textContent = EVENTS.length || "";
   $("#c-src").textContent = NOTES.length || "";
   $("#ws-sub").textContent = overdue ? `${overdue} overdue` : "";
 
+  // Counts are last-known-from-Notion, refreshed by `pkm pull` on every tick.
   $("#topbar-right").innerHTML = view === "board" && TASKS.length
-    ? `<span class="muted">${open} open</span>`
+    ? `<span class="muted">${open} open · ${pushed} in Notion</span>`
     : "";
 
   if (fresh.size) setTimeout(() => { fresh.clear(); }, 1300);
@@ -1486,7 +1536,7 @@ async function refreshSource(id, btn) {
   try {
     const r = await api("POST", `/api/notes/${id}/reextract`);
     SOURCE = r.detail;
-    await loadTasks();
+    await Promise.all([loadTasks(), loadEvents()]);
     render();
     const bits = [];
     if (r.created)   bits.push(`${r.created} new`);
@@ -1519,7 +1569,7 @@ async function submitTask(episodeId) {
   if (dir === "theirs" && !payload.owner.trim()) { toast("Name who owns it."); return; }
   try {
     await api("POST", "/api/tasks", payload);
-    await Promise.all([loadTasks(), loadSource(episodeId)]);
+    await Promise.all([loadTasks(), loadEvents(), loadSource(episodeId)]);
     render();
     toast("Task added");
   } catch (err) { toast(err.message, 6000); }
@@ -1546,36 +1596,32 @@ function renderPeek(t) {
   const overdue = t.due_date && t.due_date < TODAY && t.status !== "done";
 
   $("#peek-body").innerHTML = `
-    <textarea id="pk-task" class="peek-title" rows="1"
-              aria-label="Task">${esc(t.task)}</textarea>
+    <h2 class="peek-title-static">${esc(t.task)}</h2>
+
+    ${t.external_url ? `<div class="callout"><span class="ico">↗</span><div>
+        This lives in Notion now, and Notion owns it.
+        <a href="${esc(t.external_url)}" target="_blank" rel="noreferrer noopener">Open the card</a>
+        to change its status, wording or date.</div></div>`
+      : `<div class="callout"><span class="ico">⏳</span><div>Not in Notion yet.
+        It goes on the next push, and after that Notion owns it.</div></div>`}
 
     <div class="prop">
       <div class="k">🏷️ Status</div>
-      <div class="v"><span class="seg boxed" id="pk-status">
-        ${COLUMNS.map((c) => `<button class="btn" data-status="${c.key}"
-            aria-pressed="${t.status === c.key}">${c.label}</button>`).join("")}
-      </span></div>
+      <div class="v"><span class="chip status-${esc(t.status)}">${esc(t.status)}</span>
+        <span class="muted">last known from Notion</span></div>
     </div>
 
     <div class="prop">
       <div class="k">👤 Owner</div>
-      <div class="v owner-v">
-        <span class="seg boxed" id="pk-dir">
-          <button class="btn" data-dir="mine"   aria-pressed="${t.direction === "mine"}">Me</button>
-          <button class="btn" data-dir="theirs" aria-pressed="${t.direction === "theirs"}">Someone else</button>
-        </span>
-        ${t.direction === "theirs"
-          ? `<input type="text" id="pk-owner" value="${esc(t.owner)}" placeholder="Their name">`
-          : ""}
-      </div>
+      <div class="v"><span class="chip person ${t.direction === "theirs" ? "theirs" : ""}">${
+        t.direction === "mine" ? "Me" : esc(t.owner)}</span></div>
     </div>
 
     <div class="prop">
       <div class="k">📅 Due</div>
-      <div class="v">
-        <input type="date" id="pk-due" value="${esc(t.due_date || "")}">
-        ${overdue ? `<span class="chip date overdue">Overdue</span>` : ""}
-      </div>
+      <div class="v">${t.due_date
+        ? `<span class="chip date ${overdue ? "overdue" : ""}">${overdue ? "Overdue · " : ""}${fmtDate(t.due_date)}</span>`
+        : `<span class="muted">No date</span>`}</div>
     </div>
 
     <div class="prop">
@@ -1618,34 +1664,9 @@ function renderPeek(t) {
     <div class="row">
       <button class="btn danger" id="pk-delete" data-id="${t.id}">Delete this task</button>
       <span class="muted" id="pk-status-msg"></span>
-    </div>`;
-
-  const ta = $("#pk-task");
-  if (ta) { ta.style.height = "auto"; ta.style.height = ta.scrollHeight + "px"; }
-}
-
-/** PATCH one or more fields, then refresh whatever view is showing. */
-async function patchTask(id, fields) {
-  const msg = $("#pk-status-msg");
-  if (msg) msg.textContent = "Saving…";
-  try {
-    const r = await api("PATCH", `/api/tasks/${id}`, fields);
-    const updated = r.task;
-    const i = TASKS.findIndex((x) => x.id === id);
-    if (i >= 0 && updated) TASKS[i] = updated;
-    if (SOURCE) {
-      const j = (SOURCE.tasks || []).findIndex((x) => x.id === id);
-      if (j >= 0 && updated) SOURCE.tasks[j] = updated;
-    }
-    render();
-    if (peekId === id && updated) renderPeek(updated);
-    const m = $("#pk-status-msg");
-    if (m) { m.textContent = "Saved"; setTimeout(() => { if ($("#pk-status-msg")) $("#pk-status-msg").textContent = ""; }, 1400); }
-  } catch (err) {
-    toast(`Couldn't save: ${err.message}`, 6000);
-    const m = $("#pk-status-msg");
-    if (m) m.textContent = "";
-  }
+    </div>
+    ${t.external_url ? `<p class="desc">Deleting it here leaves the Notion page
+       behind as an orphan. <code>pkm pull --prune</code> archives those.</p>` : ""}`;
 }
 
 async function deleteTask(id) {
@@ -1654,7 +1675,7 @@ async function deleteTask(id) {
   try {
     await api("DELETE", `/api/tasks/${id}`);
     closePeek();
-    await loadTasks();
+    await Promise.all([loadTasks(), loadEvents()]);
     if (SOURCE) await loadSource(SOURCE.note.id);
     render();
     toast("Task deleted");
@@ -1706,15 +1727,6 @@ document.addEventListener("click", async (e) => {
   if (e.target.closest("#pk-delete"))
     return deleteTask(Number(e.target.closest("#pk-delete").dataset.id));
 
-  const pkStatus = e.target.closest("#pk-status .btn");
-  if (pkStatus) return patchTask(peekId, { status: pkStatus.dataset.status });
-  const pkDir = e.target.closest("#pk-dir .btn");
-  if (pkDir) {
-    const next = pkDir.dataset.dir;
-    return patchTask(peekId, next === "mine" ? { direction: "mine", owner: "me" }
-                                             : { direction: "theirs" });
-  }
-
   const prov = e.target.closest("[data-provider]");
   if (prov) {
     const key = prov.dataset.provider;
@@ -1752,7 +1764,7 @@ document.addEventListener("click", async (e) => {
     if (!confirm(`Remove “${note ? note.title : "this note"}” and everything extracted from it?\n\nThe file moves to your trash folder.`)) return;
     try {
       await api("DELETE", `/api/notes/${del.dataset.del}`);
-      await Promise.all([loadNotes(), loadTasks()]);
+      await Promise.all([loadNotes(), loadTasks(), loadEvents()]);
       render();
       toast("Removed");
     } catch (err) { toast(err.message, 6000); }
@@ -1761,38 +1773,23 @@ document.addEventListener("click", async (e) => {
 
   const tab = e.target.closest("[data-filter]");
   if (tab) { filter = tab.dataset.filter; return render(); }
-  const grp = e.target.closest("[data-group]");
-  if (grp) { group = grp.dataset.group; return render(); }
-
-  const check = e.target.closest("[data-check]");
-  if (check) return move(Number(check.dataset.check), check.checked ? "done" : "todo");
 
   const row = e.target.closest(".task-row");
   if (row && !e.target.closest("button")) return openPeek(Number(row.dataset.id));
 
-  const card = e.target.closest(".card");
-  if (card) return openPeek(Number(card.dataset.id));
+  // A log entry whose commitment still exists opens its detail. Following the
+  // Notion link must not also open the panel.
+  const entry = e.target.closest(".ev[data-id]");
+  if (entry && !e.target.closest("a")) return openPeek(Number(entry.dataset.id));
 });
 
 document.addEventListener("change", (e) => {
   if (e.target.id === "file-input") submitFiles(e.target.files);
-  if (e.target.id === "pk-due")   return patchTask(peekId, { due_date: e.target.value || null });
-  if (e.target.id === "pk-owner") return patchTask(peekId, { owner: e.target.value });
-  if (e.target.id === "t-status" || e.target.id === "pk-due" || e.target.id === "t-due") return;
 });
-
-document.addEventListener("blur", (e) => {
-  if (e.target.id === "pk-task" && peekId) {
-    const t = TASKS.find((x) => x.id === peekId) || (SOURCE?.tasks || []).find((x) => x.id === peekId);
-    const next = e.target.value.trim();
-    if (next && t && next !== t.task) patchTask(peekId, { task: next });
-  }
-}, true);
 
 $("#peek-close").addEventListener("click", closePeek);
 $("#scrim").addEventListener("click", closePeek);
 document.addEventListener("keydown", (e) => {
-  if (e.target.id === "pk-task" && e.key === "Enter") { e.preventDefault(); e.target.blur(); return; }
   if (e.target.id === "t-task" && e.key === "Enter") {
     e.preventDefault();
     const save = $("#t-save");
@@ -1805,58 +1802,28 @@ document.addEventListener("keydown", (e) => {
   }
   const openRow = e.target.closest?.(".task-row");
   if (openRow && e.key === "Enter") { e.preventDefault(); return openPeek(Number(openRow.dataset.id)); }
+  const openEv = e.target.closest?.(".ev[data-id]");
+  if (openEv && e.key === "Enter") { e.preventDefault(); return openPeek(Number(openEv.dataset.id)); }
   const openSrc = e.target.closest?.("tr.clickable");
   if (openSrc && e.key === "Enter") { e.preventDefault(); return goto("source", Number(openSrc.dataset.source)); }
   if (e.key === "Escape") closePeek();
-  if (view !== "board") return;
-  const card = document.activeElement?.closest?.(".card");
-  if (card && ["1", "2", "3"].includes(e.key)) {
-    e.preventDefault();
-    move(Number(card.dataset.id), COLUMNS[Number(e.key) - 1].key);
-  }
 });
 
-/* drag and drop -> PATCH (no localStorage; the server holds board state) */
-let dragId = null;
-document.addEventListener("dragstart", (e) => {
-  const card = e.target.closest(".card");
-  if (!card) return;
-  dragId = Number(card.dataset.id);
-  card.classList.add("dragging");
-  e.dataTransfer.effectAllowed = "move";
-  e.dataTransfer.setData("text/plain", String(dragId));
-});
-document.addEventListener("dragend", (e) => {
-  e.target.closest?.(".card")?.classList.remove("dragging");
-  document.querySelectorAll(".drop.over").forEach((d) => d.classList.remove("over"));
-});
+/* Dropping files on the Add notes zone. There is no card dragging any more:
+   moving a task between columns is Notion's job (§12). */
 document.addEventListener("dragover", (e) => {
   const zone = e.target.closest("#dz");
-  if (zone) { e.preventDefault(); zone.classList.add("over"); return; }
-  const drop = e.target.closest(".drop");
-  if (!drop || dragId === null) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = "move";
-  drop.classList.add("over");
+  if (zone) { e.preventDefault(); zone.classList.add("over"); }
 });
 document.addEventListener("dragleave", (e) => {
-  e.target.closest?.(".drop")?.classList.remove("over");
   e.target.closest?.("#dz")?.classList.remove("over");
 });
 document.addEventListener("drop", (e) => {
   const zone = e.target.closest("#dz");
-  if (zone) {
-    e.preventDefault(); zone.classList.remove("over");
-    if (e.dataTransfer.files?.length) submitFiles(e.dataTransfer.files);
-    return;
-  }
-  const drop = e.target.closest(".drop");
-  if (!drop) return;
+  if (!zone) return;
   e.preventDefault();
-  drop.classList.remove("over");
-  const id = dragId ?? Number(e.dataTransfer.getData("text/plain"));
-  dragId = null;
-  if (id) move(id, drop.dataset.status);
+  zone.classList.remove("over");
+  if (e.dataTransfer.files?.length) submitFiles(e.dataTransfer.files);
 });
 
 async function runSync() {
@@ -1866,7 +1833,7 @@ async function runSync() {
   btn.innerHTML = `<span class="ico spin">◐</span> Syncing…`;
   try {
     const body = await api("POST", "/api/sync");
-    await loadTasks();
+    await Promise.all([loadTasks(), loadEvents()]);
     render();
     const bits = [`${body.extracted} meeting${body.extracted === 1 ? "" : "s"} read`,
                   `${body.created} new`, `${body.merged} merged`];
@@ -1896,7 +1863,7 @@ async function checkServer() {
 
 checkServer();
 
-loadTasks().then(render).catch((err) => {
+Promise.all([loadTasks(), loadEvents()]).then(render).catch((err) => {
   $("#root").innerHTML = `<div class="callout warn"><span class="ico">⚠️</span><div>
     Couldn’t reach the server: ${esc(err.message)}</div></div>`;
 });

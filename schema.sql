@@ -110,6 +110,24 @@ CREATE TABLE IF NOT EXISTS commitment_mentions (
     UNIQUE (commitment_id, episode_id, quote)
 );
 
+-- What actually happened with Notion (§12). The local board is a log of this,
+-- not a second task tracker: Notion owns a card once it exists.
+--
+-- Deliberately NOT a foreign key. A log has to outlive the thing it logs — you
+-- need to see that a task was sent and then deleted, and a cascade would erase
+-- exactly that. `task` is a snapshot for the same reason.
+CREATE TABLE IF NOT EXISTS sync_events (
+    id            INTEGER PRIMARY KEY,
+    commitment_id INTEGER,            -- no REFERENCES: see above
+    action        TEXT    NOT NULL,   -- created | resent | status | deleted | merged
+    task          TEXT    NOT NULL,   -- as it read at the time
+    detail        TEXT,               -- 'todo -> doing', 'merged into #4', ...
+    external_url  TEXT,               -- the Notion page, when there is one
+    at            TEXT    NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_events_at ON sync_events(at DESC);
+
 -- Dropped extractions: quote failed the verbatim check (§5). Kept so prompt
 -- iteration has a record of what the model hallucinated.
 CREATE TABLE IF NOT EXISTS extraction_drops (

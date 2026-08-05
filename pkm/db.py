@@ -54,6 +54,33 @@ def migrate(conn: sqlite3.Connection) -> None:
         for name, spec in columns:
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
+    _backfill_log(conn)
+
+
+def _backfill_log(conn: sqlite3.Connection) -> None:
+    """Give the log a past (§12).
+
+    Commitments pushed before this table existed carry a `pushed_at` and a page
+    id but no event, so the log would open empty on a board with a dozen cards
+    already in Notion — reading as "nothing has been sent" when everything has.
+
+    Runs once: after it, the table is no longer empty.
+    """
+    if conn.execute("SELECT 1 FROM sync_events LIMIT 1").fetchone():
+        return
+    rows = conn.execute(
+        """SELECT id, task, pushed_at, external_url, status FROM commitments
+            WHERE external_id IS NOT NULL AND pushed_at IS NOT NULL
+         ORDER BY pushed_at"""
+    ).fetchall()
+    for row in rows:
+        conn.execute(
+            """INSERT INTO sync_events (commitment_id, action, task, detail,
+                                        external_url, at)
+               VALUES (?, 'created', ?, ?, ?, ?)""",
+            (int(row["id"]), row["task"], "sent before the log existed",
+             row["external_url"], row["pushed_at"]),
+        )
 
 
 @contextmanager
@@ -515,6 +542,60 @@ SELECT c.id,
           (c.due_date IS NULL), c.due_date,
           e.started_at DESC, c.id
 """
+
+
+# --- the log (§12) ------------------------------------------------------------
+
+ACTIONS = ("created", "resent", "status", "deleted", "merged")
+
+
+def log_event(conn: sqlite3.Connection, action: str, task: str, *,
+              commitment_id: int | None = None, detail: str | None = None,
+              external_url: str | None = None) -> int:
+    """Record something that happened with Notion.
+
+    The board reads this rather than tracking state of its own: Notion owns a
+    card once it exists, so what is worth showing locally is the history of what
+    was sent and what came back.
+    """
+    if action not in ACTIONS:
+        raise ValueError(f"unknown log action: {action!r}")
+    cur = conn.execute(
+        """INSERT INTO sync_events (commitment_id, action, task, detail,
+                                    external_url, at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (commitment_id, action, task, detail, external_url, now()),
+    )
+    return int(cur.lastrowid)
+
+
+def recent_events(conn: sqlite3.Connection, limit: int = 300) -> list[dict]:
+    """The log, newest first, joined to whatever still exists.
+
+    A LEFT JOIN because the row may be gone — that is the case the log exists
+    for. `alive` tells the page whether there is anything left to open.
+    """
+    rows = conn.execute(
+        """SELECT s.id, s.commitment_id, s.action, s.task, s.detail,
+                  s.external_url, s.at,
+                  c.id IS NOT NULL      AS alive,
+                  c.status              AS status,
+                  c.due_date            AS due_date,
+                  c.direction           AS direction,
+                  c.owner               AS owner,
+                  c.quote               AS quote,
+                  c.speaker             AS speaker,
+                  c.origin              AS origin,
+                  e.title               AS meeting,
+                  e.id                  AS episode_id
+             FROM sync_events s
+             LEFT JOIN commitments c ON c.id = s.commitment_id
+             LEFT JOIN episodes e    ON e.id = c.episode_id
+         ORDER BY s.at DESC, s.id DESC
+            LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def merge_commitments(conn: sqlite3.Connection, keep_id: int, drop_id: int) -> dict:

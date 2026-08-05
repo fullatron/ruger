@@ -437,11 +437,19 @@ def _database() -> str:
 
 def push(conn: sqlite3.Connection, *, dry_run: bool = False,
          limit: int | None = None, only: set[int] | None = None,
-         force_status: set[int] | None = None) -> dict:
-    """Send every commitment to Notion: create what is missing, update the rest.
+         force_status: set[int] | None = None, resend: bool = False) -> dict:
+    """Create the pages that are missing. **Existing pages are left alone.**
+
+    §12: Notion owns a card once it exists. Ruger writes everything at creation
+    and never overwrites it again, so a title you fixed or a date you moved in
+    Notion stays fixed. Before this, push re-sent content on every run and
+    silently reverted those edits within five minutes.
+
+    `resend=True` is the deliberate override, for when a re-extraction really
+    should overwrite the card. It is not what the timer does.
 
     Idempotent by construction — the Notion page id is stored on the row, so a
-    second push with no local changes creates nothing.
+    second push with no new commitments creates nothing.
 
     `only` narrows it to specific commitment ids. A capture uses that so one
     dictated sentence costs one API call rather than a re-send of the whole
@@ -465,8 +473,8 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
     profile = {"title": TITLE_PROP} if dry_run else board_profile(database_id)
     title = profile["title"]
 
-    stats = {"total": len(rows), "created": 0, "updated": 0, "failed": 0,
-             "errors": [], "plan": [], "url": ""}
+    stats = {"total": len(rows), "created": 0, "updated": 0, "skipped": 0,
+             "failed": 0, "errors": [], "plan": [], "url": ""}
 
     for row in rows:
         properties = content_properties(row)
@@ -474,23 +482,53 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
             properties[title] = properties.pop(TITLE_PROP)
 
         existing = row["external_id"]
-        action = "update" if existing else "create"
+        moving = bool(force_status and int(row["id"]) in force_status)
+
+        if not existing:
+            action = "create"
+        elif resend:
+            action = "resend"
+        elif moving:
+            action = "status"
+        else:
+            action = "skip"
+
         stats["plan"].append({
             "id": int(row["id"]), "action": action, "task": row["task"],
             "owner": row["owner"], "status": row["status"],
             "due_date": row["due_date"], "url": row["external_url"],
         })
         if dry_run:
-            stats["created" if action == "create" else "updated"] += 1
+            key = {"create": "created", "skip": "skipped"}.get(action, "updated")
+            stats[key] += 1
+            continue
+
+        if action == "skip":
+            # The page exists and nobody asked to overwrite it. Notion owns it.
+            stats["skipped"] += 1
             continue
 
         try:
             if existing:
-                if force_status and int(row["id"]) in force_status:
-                    opening = status_payload(row["status"], profile)
-                    if opening:
-                        properties.update(opening)
-                _request("PATCH", f"/pages/{existing}", {"properties": properties})
+                opening = status_payload(row["status"], profile) if moving else None
+                if action == "status":
+                    # Only the column moved, so send only the column. Including
+                    # content here would revert whatever was edited in Notion,
+                    # which is the whole bug §12 exists to fix.
+                    payload = dict(opening or {})
+                    if not payload:
+                        stats["skipped"] += 1
+                        continue
+                else:
+                    payload = dict(properties)
+                    payload.update(opening or {})
+                _request("PATCH", f"/pages/{existing}", {"properties": payload})
+                with db.transaction(conn):
+                    db.log_event(conn, "resent" if action == "resend" else "status",
+                                 row["task"], commitment_id=int(row["id"]),
+                                 detail=("content re-sent" if action == "resend"
+                                         else f"status set to {row['status']}"),
+                                 external_url=row["external_url"])
                 stats["updated"] += 1
             else:
                 # Status is set here and only here. Every later push leaves it
@@ -506,6 +544,10 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
                 with db.transaction(conn):
                     db.mark_pushed(conn, int(row["id"]), page.get("id", ""),
                                    page.get("url"))
+                    db.log_event(conn, "created", row["task"],
+                                 commitment_id=int(row["id"]),
+                                 detail=f"opened as {row['status']}",
+                                 external_url=page.get("url"))
                 stats["created"] += 1
         except NotionError as exc:
             # One bad row must not abandon the rest of the board.
@@ -588,6 +630,10 @@ def pull(conn: sqlite3.Connection, *, dry_run: bool = False,
         if not dry_run:
             with db.transaction(conn):
                 db.set_status(conn, cid, status)
+                # The log's whole job: what came back, and when.
+                db.log_event(conn, "status", row["task"], commitment_id=cid,
+                             detail=f"{row['status']} → {status} in Notion",
+                             external_url=row["external_url"])
 
     # A row whose page vanished from the database: the page was deleted in
     # Notion. Reported, never deleted here — the same rule refresh follows.

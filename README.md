@@ -3,8 +3,9 @@
 Meeting notes in, verified commitments out. Ruger reads what was said in a call,
 pulls out the things people committed to doing — yours and other people's —
 throws away anything it cannot back up with a verbatim line from the notes, and
-puts what survives in two places: a local board for **correcting** the
-extraction, and a Notion database for **living with** the list.
+sends what survives to a Notion database. Notion owns the tasks from there; the
+local page is the log of what was sent and what came back, with the evidence
+still attached.
 
 Spec: [`v0PRD.md`](v0PRD.md). Working notes: [`CLAUDE.md`](CLAUDE.md).
 
@@ -23,8 +24,8 @@ paste / drop in the UI ┘            │  inbox connector
                                     │
                         ┌───────────┴───────────┐
                         ▼                       ▼
-                 board.html                 Notion database
-              (correct it here)         (work the list here)
+             Notion database              board.html
+            (own the tasks here)      (the log of what was sent)
 ```
 
 The database is derived. Delete `~/.pkm/ruger.db`, run the sync again, and the
@@ -90,6 +91,7 @@ open http://127.0.0.1:8765
 | `python -m pkm sync --push` | …and send the result to Notion |
 | `python -m pkm serve [--host --port]` | serve without syncing |
 | `python -m pkm table` | print the current board |
+| `python -m pkm push --resend` | overwrite content on pages that already exist |
 | `python -m pkm status [--json]` | board counts, and whether the timer is still alive |
 | `python -m pkm capture "…"` | one line → tasks → Notion. Reads stdin if no text is given |
 | `python -m pkm dedupe [--apply]` | find open commitments that are the same job worded differently |
@@ -101,7 +103,7 @@ open http://127.0.0.1:8765
 | `python -m pkm notion` | who the Notion token is, and what it can see |
 | `python -m pkm notion setup --parent URL` | create the Notion database |
 | `python -m pkm notion setup --database URL` | or adopt one you already have |
-| `python -m pkm push [--dry-run --limit N]` | send commitments to Notion |
+| `python -m pkm push [--dry-run --limit N]` | create the Notion pages that are missing |
 | `python -m pkm pull [--dry-run --prune]` | bring status changes back |
 | `python -m pkm unlink` | forget every Notion page id; the next push rebuilds |
 
@@ -225,7 +227,7 @@ sh scripts/install-agents.sh --remove   # stop and remove both
 
 | | |
 |---|---|
-| `ai.ruger.wispr` | `scripts/wispr-tick.sh` every 300s with `RunAtLoad`. One tick is import → sync → push → pull. Log: `~/.pkm/logs/wispr.log` |
+| `ai.ruger.wispr` | `scripts/wispr-tick.sh` every 300s with `RunAtLoad`. One tick is import → sync → push → pull. Push is skipped when nothing new arrived; **pull always runs**, so the log's status never goes stale. Log: `~/.pkm/logs/wispr.log` |
 | `ai.ruger.board` | `pkm serve`, `RunAtLoad` and `KeepAlive`, so the board answers on 8765 for as long as you are logged in. Log: `~/.pkm/logs/board.log` |
 | `ai.ruger.menubar` | `build/RugerBar`, the menu bar app. Installed only once it has been built. Log: `~/.pkm/logs/menubar.log` |
 
@@ -324,40 +326,37 @@ open -a SwiftBar
 The `5m` is SwiftBar's refresh interval, matching the timer's 300s.
 </details>
 
-## The board
+## The activity log
 
 `http://127.0.0.1:8765`. One page, `pkm/board.html`, served by the stdlib
 `http.server`.
 
+**This is not a task board.** Notion owns a card once it exists, so the local page
+is the record of what Ruger sent there and what came back — with the evidence
+still attached, which is the one thing Notion cannot show you.
+
 | | |
 |---|---|
-| **Board** | the commitment board |
-| **Add notes** | paste a meeting, or drop `.md` files — stores and extracts in one step |
-| **Sources** | every note stored; open one for its transcript, its tasks and its drops |
+| **Activity** | the log: sent to Notion, status changed, removed |
+| **Add notes** | paste a meeting, or drop `.md` files |
+| **Sources** | every note stored; open one for its transcript, tasks and drops |
 | **Settings** | provider, model, API key, your name, context limit |
 | **Sync inbox** | ingest and extract whatever is new in `~/.pkm/inbox` |
 | **Appearance** | dark (the default) or light |
 
-Columns are status: **To do / Doing / Done**. Filter to All / Mine / Theirs, and
-group into swimlanes by meeting or by person — the same renderer draws all three
-views.
+Entries are grouped by day, newest first, and each one carries the verbatim line
+that produced the task, who said it, which meeting, the last known status, and a
+link straight to the Notion card. Filter to everything, just what was sent, or
+just status changes.
 
-- **Purple** cards are yours, **green** are someone else's promise to you. Two
-  different kinds of anxiety; merging them makes the board useless.
-- Every card carries its evidence on the face: the verbatim line that produced
-  it, who said it, which meeting. A wrong extraction is obvious in half a second
-  instead of quietly rotting on the board.
-- Due dates go red when overdue.
-- A commitment raised in more than one meeting is **one card** reading `2× raised`,
-  not two rows. Open it for the full history of when it came up.
-- Drag a card, tick its checkbox, or focus it and press `1`/`2`/`3`.
-- Click any card to open a panel where the task, owner, direction, due date and
-  status are all editable, and can be deleted. Every control saves immediately.
-- A task you added by hand says it has no quote rather than showing empty
-  evidence, because nobody said it.
+There is no status control, no drag, no checkbox and no editing: `PATCH
+/api/tasks/{id}` is gone and answers **405 with an explanation**, because a stale
+page still holds the old handlers and a 404 would read as a routing bug. Delete
+stays — a bad extraction still needs removing, and the log records that too.
 
-Board state lives in SQLite, not the browser. There is no `localStorage`: every
-change PATCHes the server, and the page holds nothing the server does not have.
+Status is still stored, as **last known from Notion**. `pkm pull` refreshes it on
+every tick, the menu bar counts it, and dedup needs it to know which rows are
+still open.
 
 ### One source
 
@@ -687,7 +686,7 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **663
+No framework — scripts that print PASS/FAIL and exit non-zero. **681
 assertions** across twelve suites.
 
 ```bash
@@ -695,13 +694,13 @@ assertions** across twelve suites.
 .venv/bin/python scratch/test_extraction.py         # quote check + dedup           (54)
 .venv/bin/python scratch/test_providers.py          # JSON salvage + shape check    (38)
 .venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF    (59)
-.venv/bin/python scratch/test_tasks.py              # manual tasks, merge-refresh   (59)
-.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (123)
+.venv/bin/python scratch/test_tasks.py              # read-only board, merge-refresh(66)
+.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (130)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract    (79)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion    (49)
-cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
+cd scratch && ../.venv/bin/python test_server.py    # the endpoints, and the log    (26)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
 

@@ -103,27 +103,34 @@ def main() -> None:
             check("repeated card carries 2 history entries",
                   len(next(t for t in tasks if t["mention_count"] == 2)["history"]), 2)
 
-            print("\nPATCH /api/tasks/{id}")
+            print("\nPATCH is gone (§12) — Notion owns a card once it exists")
             target = tasks[0]["id"]
             status, body = request("PATCH", f"/api/tasks/{target}", {"status": "doing"})
+            check("refused", status, 405)
+            # 405 rather than 404 on purpose: a stale page still holds the old
+            # handlers, and "not found" would send you hunting for a routing bug.
+            check("and says why", "log" in body["error"], True)
+            _, body = request("GET", "/api/tasks")
+            check("nothing moved",
+                  next(t for t in body["tasks"] if t["id"] == target)["status"], "todo")
+
+            print("\nGET /api/events — the log")
+            status, body = request("GET", "/api/events")
             check("status", status, 200)
-            check("returns the updated task", body["task"]["status"], "doing")
+            check("nothing sent to Notion yet, so nothing logged", body["events"], [])
 
-            print("\nGET /api/tasks again (the refresh)")
-            _, body = request("GET", "/api/tasks")
-            moved = next(t for t in body["tasks"] if t["id"] == target)
-            check("checkbox survives a refresh", moved["status"], "doing")
-
-            status, _ = request("PATCH", f"/api/tasks/{target}", {"status": "done"})
-            check("done accepted", status, 200)
-            _, body = request("GET", "/api/tasks")
-            check("done persisted",
-                  next(t for t in body["tasks"] if t["id"] == target)["status"], "done")
+            print("\n  deleting records itself, and the log outlives the row:")
+            status, _ = request("DELETE", f"/api/tasks/{target}")
+            check("deleted", status, 200)
+            _, body = request("GET", "/api/events")
+            check("one event", len(body["events"]), 1)
+            check("it was the delete", body["events"][0]["action"], "deleted")
+            check("the task text is kept as a snapshot",
+                  body["events"][0]["task"], tasks[0]["task"])
+            check("and the row it points at is gone", body["events"][0]["alive"], 0)
 
             print("\nrejections")
-            status, body = request("PATCH", f"/api/tasks/{target}", {"status": "banana"})
-            check("bad status -> 400", status, 400)
-            status, _ = request("PATCH", "/api/tasks/999999", {"status": "todo"})
+            status, _ = request("DELETE", "/api/tasks/999999")
             check("unknown id -> 404", status, 404)
             status, _ = request("GET", "/api/nope")
             check("unknown route -> 404", status, 404)
@@ -131,9 +138,10 @@ def main() -> None:
             print("\nPOST /api/sync (no new files, nothing to extract)")
             status, body = request("POST", "/api/sync")
             check("status", status, 200)
-            check("returns a count", body["tasks"], 3)
+            # Two, not three: one was deleted above.
+            check("returns a count", body["tasks"], 2)
             check("nothing re-extracted", body["extracted"], 0)
-            check("no duplicates", len(request("GET", "/api/tasks")[1]["tasks"]), 3)
+            check("no duplicates", len(request("GET", "/api/tasks")[1]["tasks"]), 2)
         finally:
             httpd.shutdown()
             httpd.server_close()

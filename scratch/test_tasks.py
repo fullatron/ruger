@@ -167,30 +167,32 @@ def main() -> None:
               {"episode_id": 999999, "task": "x"})[0], 400)
         check("no episode_id", request("POST", "/api/tasks", {"task": "x"})[0], 400)
 
-        print("\nPATCH /api/tasks/{id} — editing content, not just status:")
+        print("\nthe board cannot edit anything any more (§12):")
         tasks = request("GET", "/api/tasks")[1]["tasks"]
         audit = by_task(tasks, "audit")
-        status, body = request("PATCH", f"/api/tasks/{audit['id']}",
-                               {"task": "Audit the LinkedIn profiles myself"})
-        check("status", status, 200)
-        check("text changed", body["task"]["task"], "Audit the LinkedIn profiles myself")
-        check("flagged as edited", body["task"]["edited"], 1)
-        status, body = request("PATCH", f"/api/tasks/{audit['id']}", {"due_date": "2026-08-20"})
-        check("due date changed", body["task"]["due_date"], "2026-08-20")
-        status, body = request("PATCH", f"/api/tasks/{audit['id']}",
-                               {"direction": "theirs", "owner": "Theo"})
-        check("reassigned", (body["task"]["direction"], body["task"]["owner"]),
-              ("theirs", "Theo"))
-        status, body = request("PATCH", f"/api/tasks/{audit['id']}",
-                               {"direction": "mine"})
-        check("back to mine forces owner me", body["task"]["owner"], "me")
-        check("status still editable",
-              request("PATCH", f"/api/tasks/{audit['id']}", {"status": "doing"})[1]["task"]["status"],
-              "doing")
-        check("empty text rejected",
-              request("PATCH", f"/api/tasks/{audit['id']}", {"task": "  "})[0], 400)
-        check("nothing to change rejected",
-              request("PATCH", f"/api/tasks/{audit['id']}", {})[0], 400)
+        for field in ({"status": "doing"}, {"task": "Something else"},
+                      {"due_date": "2026-08-20"}, {"owner": "Theo"}):
+            check(f"PATCH {list(field)[0]} refused",
+                  request("PATCH", f"/api/tasks/{audit['id']}", field)[0], 405)
+        after = by_task(request("GET", "/api/tasks")[1]["tasks"], "audit")
+        check("nothing changed", (after["status"], after["task"]),
+              (audit["status"], audit["task"]))
+
+        print("\n  editing still exists, but it belongs to an instruction now:")
+        # `update_commitment` is what `instruct.py` calls. The refresh-protection
+        # tests below depend on a row being human-edited, and this is the path
+        # that now sets that flag.
+        with closing(db.connect()) as conn:
+            with db.transaction(conn):
+                db.update_commitment(conn, audit["id"], {
+                    "task": "Audit the LinkedIn profiles myself",
+                    "due_date": "2026-08-20"})
+                db.set_status(conn, audit["id"], "doing")
+            row = db.get_commitment(conn, audit["id"])
+            check("text changed", row["task"], "Audit the LinkedIn profiles myself")
+            check("flagged as edited", row["edited"], 1)
+            check("due date changed", row["due_date"], "2026-08-20")
+            check("status moved", row["status"], "doing")
 
         print("\n  a renamed task still dedups (derived keys moved with it):")
         with closing(db.connect()) as conn:
@@ -252,8 +254,15 @@ def main() -> None:
         print("\npage wiring:")
         html = request("GET", "/")[1]
         for needle in ("data-source=", "src-refresh", "src-add", "provider-pick",
-                       "s-reveal", "pk-status", "transcript", "data-del-task"):
+                       "s-reveal", "transcript", "data-del-task", "/api/events",
+                       "ev-task", "day-head"):
             check(f"page references {needle}", needle in html, True)
+
+        # The removed half. `pk-status` is deliberately not checked here: it still
+        # matches `pk-status-msg`, so it would pass while meaning nothing.
+        for gone in ('data-check="', 'class="drop"', 'draggable="true"',
+                     'id="pk-due"', 'data-group='):
+            check(f"page no longer has {gone}", gone in html, False)
     finally:
         sync.reextract_episode = original
         httpd.shutdown()

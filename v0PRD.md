@@ -115,7 +115,8 @@ the server. No localStorage.
 across the top, optional rows by meeting or by person. Same renderer for all
 three views.
 
-*Held.*
+*Held until §12, then removed.* The columns were a second task tracker that
+disagreed with Notion, so the board became a log instead. Status is Notion's.
 
 **D8 — One place knows which model answers.** `pkm/providers/` is the only code
 aware of the provider. Everything downstream treats a response as untrusted
@@ -152,6 +153,11 @@ Each direction owns different fields:
 again, so a card you dragged to Done stays there. The deliberate cost: once
 pushed, ticking something off on the *local* board no longer reaches Notion.
 Notion owns which column a card sits in.
+
+*Extended twice.* §11 added one narrow exception, `force_status`, for a card an
+instruction explicitly moved. §12 went further: Notion owns a card's **content**
+too, so push creates and never overwrites. The local board stopped tracking
+status at all, which is what made this decision stop being confusing.
 
 *Added during the build.* Detail in §9.
 
@@ -548,6 +554,57 @@ judge reported itself "unavailable" and the router failed safe to `create`, whic
 is exactly why nobody would have noticed. The check now derives its required keys
 from the schema it was handed.
 
+---
+
+## 12. One tracker, and a log of what it did
+
+The local board and Notion were both task trackers, and they disagreed. Ticking
+a box locally never reached Notion — D9 made status one-directional on purpose —
+so the board showed a column the card was not in. Two trackers, one of them
+wrong.
+
+**D21 — Notion owns a card once it exists.** Ruger's job is extraction: find the
+commitment, prove it with a quote, put it where you work. After that, it stops.
+
+*The bug that settled it.* Push re-sent **content** to every existing page on
+every run — title, owner, due date, evidence. Status was protected by D9; nothing
+else was. So a card renamed in Notion was silently reverted by the next tick,
+within five minutes, with no record. The board was not merely a second tracker;
+it was quietly overwriting the first. `push` now creates the pages that are
+missing and touches nothing else. `push --resend` is the deliberate override.
+
+The accepted cost, stated plainly: a re-extraction that improves a task, or a
+mention count that goes from 1 to 2, no longer updates a card that already
+exists. Improving the record after the fact is worth less than never overwriting
+your own edits.
+
+**D22 — the board becomes the log.** Not a smaller tracker: a different thing.
+It answers "what did Ruger send, when, and what came back", and it keeps the
+evidence attached — the one thing Notion cannot show you, and the reason a local
+surface exists at all (D5).
+
+- No status, no drag, no checkboxes, no editing. `PATCH /api/tasks/{id}` is gone,
+  answering **405 with an explanation** rather than 404, because a stale page
+  still holds the old handlers and "not found" reads as a routing bug.
+- Delete stays. A bad extraction still needs removing, and the log records that
+  too — "sent, then removed" is exactly the history worth keeping.
+- Status is still stored, as **last known from Notion**. `pull` refreshes it, the
+  menu bar counts it, and dedup needs it to know which rows are still open.
+
+*`sync_events` is deliberately not a foreign key.* A log has to outlive the thing
+it logs, and a cascade would erase the delete you most want to see. The task text
+is snapshotted for the same reason.
+
+**D23 — pull runs on every tick, push does not.** They used to share a gate, so
+an idle tick skipped both — meaning the local view went stale exactly when you
+were working in Notion and not recording meetings. Push stays gated because it is
+the expensive one; pull is a single read-only query.
+
+*One migration.* Commitments pushed before the log existed have a `pushed_at` and
+no event, so the log would open empty on a board with a dozen cards already in
+Notion — reading as "nothing has been sent" when everything had. `db._backfill_log`
+gives them a past, once.
+
 ### Subtasks — Phase 2, specced but not built
 
 A captured task often implies its own steps, and the context to break it down is
@@ -575,7 +632,8 @@ part of the record, and cost nothing to add later.
 | **Step 6** | The timer, `pkm status`, the menu bar app | **done** |
 | **Step 7** | Capture (§10) — dialog → inbox → extract → Notion | **done** |
 | **Step 8** | Fuzzy dedup + instructions (§11) | **done** |
-| **Step 9** | Subtasks as checklist blocks (§10) | not started |
+| **Step 9** | The board becomes a log; Notion owns the cards (§12) | **done** |
+| **Step 10** | Subtasks as checklist blocks (§10) | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made
