@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 686 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 706 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -73,7 +73,7 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 686 assertions.
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
 .venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (49)
-.venv/bin/python scratch/test_instruct.py           # fuzzy dedup + instructions      (53)
+.venv/bin/python scratch/test_instruct.py           # dedup, instructions, subtasks   (73)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints, and the log      (26)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -475,7 +475,14 @@ there. Nothing new reaches `events` (D2, for the third time).
   may move, every value is validated in `instruct.validate`, there is no delete,
   and ambiguity is refused rather than guessed. Do not add a delete action here.
 - **The router fails toward `create`, always.** A spurious task is visible and
-  deletable; a command that swallows new work is not.
+  deletable; a command that swallows new work is not. The one place that default
+  is wrong is subtasks: "add a subtask", "break it down" and "under the X task
+  add…" sound like new work and are not, so the prompt names those words. Getting
+  it wrong files the sentence as a task called "Add a subtask of…" (§13, D25).
+- **Subtasks are to-do blocks in the page body, appended never rewritten (D24).**
+  Sub-item relations would need the database to have them enabled and the API
+  cannot do it. Steps stored before a page exists wait and go out with the body at
+  creation. Capped at twelve per task. A step that restates its parent is refused.
 - **The provider's shape check derives from the schema it was handed.** It used to
   test `parsed["commitments"]`, one prompt's key hardcoded into the check that
   exists because a schema might be ignored — so the judge and the router were both

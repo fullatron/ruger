@@ -551,7 +551,7 @@ SELECT c.id,
 # no task used to leave no trace anywhere, which is indistinguishable from the
 # feature being broken.
 ACTIONS = ("created", "resent", "status", "deleted", "merged",
-           "captured", "instructed")
+           "captured", "instructed", "subtask")
 
 
 def log_event(conn: sqlite3.Connection, action: str, task: str, *,
@@ -572,6 +572,43 @@ def log_event(conn: sqlite3.Connection, action: str, task: str, *,
         (commitment_id, action, task, detail, external_url, now()),
     )
     return int(cur.lastrowid)
+
+
+# --- subtasks (§13) -----------------------------------------------------------
+
+
+def add_subtasks(conn: sqlite3.Connection, commitment_id: int,
+                 texts: list[str]) -> list[dict]:
+    """Add steps under a task. Returns the ones that were actually new.
+
+    `INSERT OR IGNORE` against the UNIQUE on (commitment, text): saying the same
+    step twice should leave one step, not two, and should not be an error.
+    """
+    added = []
+    for raw in texts:
+        text = " ".join(str(raw or "").split())
+        if not text:
+            continue
+        cur = conn.execute(
+            """INSERT OR IGNORE INTO subtasks (commitment_id, text, created_at)
+               VALUES (?, ?, ?)""",
+            (commitment_id, text, now()),
+        )
+        if cur.rowcount:
+            added.append({"id": int(cur.lastrowid), "text": text})
+    return added
+
+
+def subtasks_for(conn: sqlite3.Connection, commitment_id: int) -> list[dict]:
+    return [dict(r) for r in conn.execute(
+        "SELECT * FROM subtasks WHERE commitment_id = ? ORDER BY id",
+        (commitment_id,),
+    ).fetchall()]
+
+
+def mark_subtask_block(conn: sqlite3.Connection, subtask_id: int, block_id: str) -> None:
+    conn.execute("UPDATE subtasks SET block_id = ? WHERE id = ?",
+                 (block_id, subtask_id))
 
 
 def latest_event_id(conn: sqlite3.Connection) -> int:

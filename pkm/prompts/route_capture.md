@@ -32,11 +32,20 @@ back to something, and it is about *changing the record* rather than doing work:
   - "move the profile audit to doing"
   - "that blades task is actually Maya's"
   - "rename the debrief task to GTM handover doc"
+  - "add a subtask of taking credentials to the P0 list"
+  - "break the handover task into steps"
+  - "under the deck task, add: pull the numbers, update the title slide"
 
 The tells for `"command"`: a completion word about existing work (done, finished,
 completed, sorted), a move between columns (to do, doing, done), a change of date
 on something already recorded (push, move, delay, bring forward), a reassignment,
-or a rename. Usually with a referring phrase — "the … one", "that …", "it".
+a rename, or **adding a step under something that already exists**. Usually with a
+referring phrase — "the … one", "that …", "it", "to the …".
+
+**"Subtask", "step", "sub-item", "checklist" and "break it down" always mean
+`command`**, even though they sound like adding work. They attach to a task that
+already exists; treating one as new work files the whole sentence as a task called
+"Add a subtask of…", which is what happens when this is got wrong.
 
 "Remind me to X" is `create`. "I finished X" is `command`. When the note both
 describes new work and refers to nothing existing, it is `create`.

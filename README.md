@@ -103,6 +103,11 @@ to friday", "that banner task is actually Maya's". It works out whether you are
 adding work or changing it. If two tasks could match, it changes nothing and says
 which two.
 
+**Subtasks too.** "add a subtask of taking credentials to the P0 list", or "break
+the handover into steps". They become a checklist in the Notion card's body, right
+under the quote — Ruger appends, so anything you tick or add there yourself is left
+alone.
+
 **Meetings arrive on their own.** If you use Wispr Flow, finished calls are
 imported every 5 minutes and turned into tasks without you doing anything. You can
 also paste a note or drop `.md` files in the **Add notes** tab, or put files in
@@ -205,7 +210,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **686 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **706 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash

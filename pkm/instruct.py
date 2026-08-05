@@ -36,6 +36,10 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 # rather than searching. Beyond this the oldest open rows are left out.
 MAX_TASKS = 60
 
+# A task broken into more pieces than this is not a task any more, and a runaway
+# model would otherwise write a hundred to-do blocks into a Notion page.
+MAX_SUBTASKS = 12
+
 ROUTE_SCHEMA = {
     "type": "object",
     "properties": {"kind": {"type": "string", "enum": ["create", "command"]}},
@@ -56,6 +60,7 @@ SCHEMA = {
                     "due_date": {"anyOf": [{"type": "string"}, {"type": "null"}]},
                     "owner": {"type": "string"},
                     "task": {"type": "string"},
+                    "subtasks": {"type": "array", "items": {"type": "string"}},
                 },
                 "required": ["id"],
                 "additionalProperties": False,
@@ -190,8 +195,30 @@ def validate(changes: list, rows: list) -> tuple[list[dict], list[str]]:
             elif renamed != row["task"]:
                 fields["task"] = renamed
 
-        if fields:
-            kept.append({"id": task_id, "row": row, "fields": fields})
+        steps: list[str] = []
+        if "subtasks" in item:
+            raw_steps = item["subtasks"]
+            if not isinstance(raw_steps, list):
+                refused.append(f"id {task_id}: subtasks was not a list")
+                raw_steps = []
+            for step in raw_steps[:MAX_SUBTASKS]:
+                text = " ".join(str(step or "").split())
+                if not text:
+                    continue
+                if len(text) > 300:
+                    refused.append(f"id {task_id}: a step was too long")
+                    continue
+                # A step that just restates the parent adds nothing but noise.
+                if text.casefold() == str(row["task"]).casefold():
+                    refused.append(f"id {task_id}: a step repeated the task itself")
+                    continue
+                steps.append(text)
+            if len(raw_steps) > MAX_SUBTASKS:
+                refused.append(f"id {task_id}: kept the first {MAX_SUBTASKS} steps")
+
+        if fields or steps:
+            kept.append({"id": task_id, "row": row, "fields": fields,
+                         "subtasks": steps})
 
     return kept, refused
 
@@ -208,6 +235,9 @@ def describe(change: dict) -> str:
         bits.append(f"owner {fields['owner']}")
     if "task" in fields:
         bits.append(f'renamed to "{fields["task"]}"')
+    added = change.get("added_subtasks") or []
+    if added:
+        bits.append("+ " + ", ".join(s["text"] for s in added))
     return f"{row['task']}: {', '.join(bits)}"
 
 
@@ -227,6 +257,8 @@ def apply(conn: sqlite3.Connection, changes: list) -> list[dict]:
                 db.update_commitment(conn, change["id"], fields)
             if status is not None:
                 db.set_status(conn, change["id"], str(status))
+            change["added_subtasks"] = db.add_subtasks(
+                conn, change["id"], change.get("subtasks") or [])
         applied.append(change)
     return applied
 
@@ -251,13 +283,56 @@ def run(conn: sqlite3.Connection, text: str, *, ask=None, plan_fn=None,
         "push_error": None,
     }
 
+    result["subtasks"] = [
+        {"id": c["id"], "task": c["row"]["task"],
+         "added": [s["text"] for s in c.get("added_subtasks") or []]}
+        for c in applied if c.get("added_subtasks")
+    ]
+
+    # Logged whether or not it reaches Notion: a step added to a page that does
+    # not exist yet is still a thing that happened.
+    for change in applied:
+        added = change.get("added_subtasks") or []
+        if added:
+            with db.transaction(conn):
+                db.log_event(conn, "subtask", change["row"]["task"],
+                             commitment_id=change["id"],
+                             detail=" · ".join(s["text"] for s in added),
+                             external_url=change["row"]["external_url"])
+
     moved = [c["id"] for c in applied if "status" in c["fields"]]
-    edited = [c["id"] for c in applied]
+    edited = [c["id"] for c in applied if c["fields"]]
     if push and edited:
         result.update(_push(conn, set(edited), force_status=set(moved)))
+    if push:
+        _push_subtasks(conn, applied, result)
 
     _log(conn, text, result)
     return result
+
+
+def _push_subtasks(conn: sqlite3.Connection, applied: list, result: dict) -> None:
+    """Append the new steps to their Notion pages, as to-do blocks (§13).
+
+    Separate from `_push` because it writes the page *body*, not its properties,
+    and a page that has never been pushed has no body to write to — those steps
+    wait, and go out with the page when it is created.
+    """
+    from .connectors import notion
+
+    for change in applied:
+        added = change.get("added_subtasks") or []
+        page = change["row"]["external_id"]
+        if not added or not page:
+            continue
+        try:
+            blocks = notion.append_subtasks(page, [s["text"] for s in added])
+        except notion.NotionError as exc:
+            result["push_error"] = result.get("push_error") or str(exc)
+            continue
+        with db.transaction(conn):
+            for subtask, block_id in zip(added, blocks):
+                db.mark_subtask_block(conn, subtask["id"], block_id)
 
 
 def _log(conn: sqlite3.Connection, text: str, result: dict) -> None:

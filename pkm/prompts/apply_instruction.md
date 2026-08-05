@@ -47,13 +47,31 @@ Only these four fields, and only the ones the instruction actually mentions:
 Nothing else is changeable. There is no way to delete a task from here, and no way
 to change its evidence: if an instruction asks for either, put it in `unclear`.
 
+## Adding steps under a task
+
+`subtasks` is a list of short steps to add under an existing task. "Add a subtask
+of taking credentials to the P0 list", "break the handover into steps", "under the
+deck task add: pull the numbers, update the title slide".
+
+- Each step is a **short imperative** — "Take credentials", "Pull the latest
+  numbers" — not a sentence, and never a repeat of the parent task's own title.
+- Split a list into separate steps. One step per action.
+- Only add steps to a task in the list, by `id`, with the same rule as everything
+  else: if you cannot tell which task, put it in `unclear` and add nothing.
+- If the instruction says "break it down" without naming the steps, infer the
+  obvious two to five from the task itself. Do not invent detail you have no
+  basis for — no names, dates or systems that were never mentioned.
+- Adding steps is not the same as changing the task. A subtask never replaces the
+  parent's title.
+
 ## Output shape
 
 ```
 {"changes": [
    {"id": 7, "status": "done"},
    {"id": 12, "due_date": "2026-08-07"},
-   {"id": 3, "owner": "Maya"}
+   {"id": 3, "owner": "Maya"},
+   {"id": 12, "subtasks": ["Take credentials", "Confirm inbox access"]}
  ],
  "unclear": ["could not tell whether 'the handover one' means id 4 or id 9"]}
 ```

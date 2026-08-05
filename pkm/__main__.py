@@ -531,6 +531,9 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
             for change in result["changes"]:
                 print(f"  · {change['line']}")
+            for item in result.get("subtasks") or []:
+                for step in item["added"]:
+                    print(f"      ☐ {step}")
             for note in result["unclear"]:
                 print(f"  ? {note}")
             for note in result["refused"]:

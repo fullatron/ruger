@@ -605,18 +605,48 @@ no event, so the log would open empty on a board with a dozen cards already in
 Notion — reading as "nothing has been sent" when everything had. `db._backfill_log`
 gives them a past, once.
 
-### Subtasks — Phase 2, specced but not built
+---
 
-A captured task often implies its own steps, and the context to break it down is
-already in the note. When this is built: **child to-do blocks in the Notion page
-body**, not sub-item relations and not extra rows.
+## 13. Subtasks
 
-Sub-items would need the target database to have them enabled, which the API
-cannot do — the same class of assumption that put seven untitled cards on the
-first live board. Extra rows would multiply cards on both boards and need a
-parent column, so a schema change. Checklist blocks work on any database
-including a stock template, sit next to the evidence quote where they read as
-part of the record, and cost nothing to add later.
+Reported as "add a subtask of taking credentials for the P0 list created a new
+task instead". It did, and nothing was broken: the router saw a sentence that adds
+work, and there was no subtask concept to route it to. §10 designed this and
+deferred it, and hitting it in real use is what un-deferred it.
+
+**D24 — steps live in the Notion page body, as to-do blocks.** Not sub-item
+relations: those must be enabled on the target database and the API cannot enable
+them, which is the same class of assumption that put seven untitled cards on the
+first live board. Not extra rows either — that multiplies cards on both boards and
+needs a parent column. A checklist works on any database including a stock
+template, and it sits directly under the evidence quote where it reads as part of
+the record.
+
+They are stored locally too, so the log can show them and a page can be rebuilt.
+`subtasks` CASCADEs from its commitment, unlike `sync_events`: a step is content,
+not history.
+
+**D25 — "subtask" is a command word.** The router's default is `create`, and that
+default is right for almost everything — but "add a subtask", "break it down",
+"under the X task add…" all *sound* like adding work while actually attaching to
+something that exists. Getting it wrong files the whole sentence as a task called
+"Add a subtask of…", which is precisely what happened. The router prompt now names
+those words explicitly.
+
+**The same fencing as every other instruction.** Steps may only attach to a task
+that was offered and is still open; a step that merely restates its parent is
+refused; blanks are dropped; and no more than twelve go on one task, because a
+task broken into more pieces than that is not a task any more and a runaway model
+would otherwise write a hundred blocks into a page.
+
+**Appending, never rewriting.** A step you tick or add in Notion by hand is never
+disturbed — consistent with D21. Steps added before a page exists wait, and go out
+with the body when it is created.
+
+*Still not built: automatic breakdown.* Ruger will not invent steps for a task
+nobody asked it to break down. That was the other half of the original request and
+it stays deferred, because a task list that grows on its own is the opposite of
+"precision beats recall".
 
 ---
 
@@ -633,7 +663,8 @@ part of the record, and cost nothing to add later.
 | **Step 7** | Capture (§10) — dialog → inbox → extract → Notion | **done** |
 | **Step 8** | Fuzzy dedup + instructions (§11) | **done** |
 | **Step 9** | The board becomes a log; Notion owns the cards (§12) | **done** |
-| **Step 10** | Subtasks as checklist blocks (§10) | not started |
+| **Step 10** | Subtasks as checklist blocks (§13) | **done** |
+| **Step 11** | Breaking a task into steps automatically (§13) | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

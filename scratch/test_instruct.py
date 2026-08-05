@@ -316,6 +316,94 @@ def main() -> None:
         check("and content is re-sent, or a due date never leaves the machine",
               sent[0].get("resend"), True)
 
+    print("\nsteps go under a task, not beside it (§13):")
+    with closing(db.connect(TMP / "sub.db")) as conn:
+        seed(conn)
+        parent = add(conn, "Create a list of P0 activities", pushed=True)
+        rows = instruct.open_tasks(conn)
+
+        kept, refused = instruct.validate([
+            {"id": parent, "subtasks": ["Take credentials", "Confirm inbox access",
+                                        "  ", "Create a list of P0 activities"]},
+        ], rows)
+        check("the blank one is skipped and the echo refused",
+              kept[0]["subtasks"], ["Take credentials", "Confirm inbox access"])
+        check("and the refusal says why",
+              any("repeated the task itself" in r for r in refused), True)
+        check("a step is not a field change", kept[0]["fields"], {})
+
+        over = instruct.validate(
+            [{"id": parent, "subtasks": [f"step {i}" for i in range(20)]}], rows)
+        check("too many steps is capped", len(over[0][0]["subtasks"]),
+              instruct.MAX_SUBTASKS)
+        check("and the cap is reported", any("kept the first" in r for r in over[1]),
+              True)
+
+        sent = []
+        from pkm.connectors import notion
+
+        def fake_append(page_id, texts):
+            sent.append((page_id, list(texts)))
+            return [f"block-{i}" for i, _ in enumerate(texts)]
+
+        original, notion.append_subtasks = notion.append_subtasks, fake_append
+        try:
+            out = instruct.run(
+                conn, "add a subtask of taking credentials to the P0 list",
+                push=True, plan_fn=lambda *a, **k: {
+                    "changes": [{"id": parent,
+                                 "subtasks": ["Take credentials", "Confirm access"]}],
+                    "unclear": [], "error": None})
+        finally:
+            notion.append_subtasks = original
+
+        check("both steps stored", [s["text"] for s in db.subtasks_for(conn, parent)],
+              ["Take credentials", "Confirm access"])
+        check("appended to the parent's page", sent[0][0], f"page-{parent}")
+        check("as the same two steps", sent[0][1], ["Take credentials", "Confirm access"])
+        check("block ids recorded",
+              [s["block_id"] for s in db.subtasks_for(conn, parent)],
+              ["block-0", "block-1"])
+        check("reported back", out["subtasks"][0]["added"],
+              ["Take credentials", "Confirm access"])
+        check("and it reads as one line", "+ Take credentials, Confirm access"
+              in out["changes"][0]["line"], True)
+
+        print("\n  saying it twice adds one step, not two:")
+        original, notion.append_subtasks = notion.append_subtasks, fake_append
+        try:
+            again = instruct.run(conn, "add taking credentials again", push=True,
+                                 plan_fn=lambda *a, **k: {
+                                     "changes": [{"id": parent,
+                                                  "subtasks": ["Take credentials"]}],
+                                     "unclear": [], "error": None})
+        finally:
+            notion.append_subtasks = original
+        check("still two steps", len(db.subtasks_for(conn, parent)), 2)
+        check("nothing new was appended", len(sent), 1)
+        check("and nothing is claimed", again["subtasks"], [])
+
+        print("\n  the log names the parent and lists the steps:")
+        events = [e for e in db.recent_events(conn) if e["action"] == "subtask"]
+        check("one subtask event", len(events), 1)
+        check("named after the parent", events[0]["task"],
+              "Create a list of P0 activities")
+        check("listing the steps", events[0]["detail"],
+              "Take credentials · Confirm access")
+
+        print("\n  steps added before the page exists wait for it:")
+        unpushed = add(conn, "Draft the brief")
+        with db.transaction(conn):
+            db.add_subtasks(conn, unpushed, ["Collect the references"])
+        waiting = db.subtasks_for(conn, unpushed)
+        check("stored without a block", waiting[0]["block_id"], None)
+        check("and still attached to its task", waiting[0]["commitment_id"], unpushed)
+
+        print("\n  deleting a task takes its steps with it:")
+        with db.transaction(conn):
+            db.delete_commitment(conn, unpushed)
+        check("gone", db.subtasks_for(conn, unpushed), [])
+
     print("\nan instruction is logged even when it changes nothing:")
     with closing(db.connect(TMP / "log.db")) as conn:
         seed(conn)

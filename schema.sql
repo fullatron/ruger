@@ -110,6 +110,23 @@ CREATE TABLE IF NOT EXISTS commitment_mentions (
     UNIQUE (commitment_id, episode_id, quote)
 );
 
+-- Steps under a task (§13). These live in the Notion page body as to-do blocks,
+-- which works on any database including a stock template — a sub-item relation
+-- would need the target database to have them enabled, and the API cannot do it.
+--
+-- Stored here as well as there so the log can show them and so the page can be
+-- rebuilt. CASCADE, unlike sync_events: a subtask is content, not history.
+CREATE TABLE IF NOT EXISTS subtasks (
+    id            INTEGER PRIMARY KEY,
+    commitment_id INTEGER NOT NULL REFERENCES commitments(id) ON DELETE CASCADE,
+    text          TEXT    NOT NULL,
+    block_id      TEXT,               -- the Notion to-do block, once written
+    created_at    TEXT    NOT NULL,
+    UNIQUE (commitment_id, text)      -- saying it twice adds one step
+);
+
+CREATE INDEX IF NOT EXISTS idx_subtasks_commitment ON subtasks(commitment_id);
+
 -- What actually happened with Notion (§12). The local board is a log of this,
 -- not a second task tracker: Notion owns a card once it exists.
 --

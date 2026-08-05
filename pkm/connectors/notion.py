@@ -254,6 +254,26 @@ def page_body(row: sqlite3.Row | dict) -> list:
     return blocks
 
 
+def append_subtasks(page_id: str, texts: list[str]) -> list[str]:
+    """Append to-do blocks to a page body. Returns the new block ids, in order.
+
+    §13: steps live in the page body rather than as sub-item relations, because
+    sub-items must be enabled on the database and the API cannot enable them —
+    the same class of assumption that put seven untitled cards on the first live
+    board. A checklist works on any database, including a stock template.
+
+    This appends. It never rewrites the body, so a step you added in Notion by
+    hand is not disturbed.
+    """
+    children = [{"object": "block", "type": "to_do",
+                 "to_do": {"rich_text": _text(t), "checked": False}}
+                for t in texts if str(t or "").strip()]
+    if not children:
+        return []
+    result = _request("PATCH", f"/blocks/{page_id}/children", {"children": children})
+    return [b.get("id", "") for b in result.get("results", [])]
+
+
 def _prop(page: dict, name: str) -> dict:
     return (page.get("properties") or {}).get(name) or {}
 
@@ -550,6 +570,16 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
                                  commitment_id=int(row["id"]),
                                  detail=f"opened as {row['status']}",
                                  external_url=page.get("url"))
+                # Steps added before the page existed have been waiting for a
+                # body to be appended to (§13).
+                waiting = [s for s in db.subtasks_for(conn, int(row["id"]))
+                           if not s["block_id"]]
+                if waiting:
+                    blocks = append_subtasks(page.get("id", ""),
+                                             [s["text"] for s in waiting])
+                    with db.transaction(conn):
+                        for subtask, block_id in zip(waiting, blocks):
+                            db.mark_subtask_block(conn, int(subtask["id"]), block_id)
                 stats["created"] += 1
         except NotionError as exc:
             # One bad row must not abandon the rest of the board.
