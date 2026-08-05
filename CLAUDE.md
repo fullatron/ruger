@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 877 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 881 assertions.
 
 `scratch/stress.py` is the other kind: hostile input, twelve concurrent writers,
 injected failures, and — with `STRESS_LIVE=1` — a real model and a real Notion.
@@ -460,6 +460,17 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   capture, so the rules stay in Python where they are testable and the menu cannot
   disagree with the board. `test_status.py` asserts the exact JSON keys the Swift
   parses: rename one and the app renders zeros in silence.
+- **The panel is a stack against one spacing scale, never hand-placed frames.**
+  It was 360x268 of absolute rectangles, which drift the moment a string changes
+  length and cannot follow a longer status line. `Metric` holds the numbers.
+- **`RugerBar --snapshot out.png [--light] [--stale]` renders the panel to a
+  file.** A popover cannot be screenshotted headlessly, so this is how its layout
+  is checked — the counterpart to `?view=` and `?theme=` in `board.html`. Two
+  traps met while building it: `cacheDisplay` renders the geometry but drops the
+  text of layer-backed labels, so it uses the PDF path; and the panel is
+  transparent because a popover supplies its own material, so every
+  `.labelColor` label came out white-on-white until the harness drew a backdrop.
+  Both looked exactly like a broken layout, and the layout was fine.
 - **No app bundle.** A plain executable with `.accessory` activation policy is a
   menu bar app already. A bundle would add signing and Info.plist upkeep for
   something launchd starts, not Finder.

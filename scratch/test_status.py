@@ -247,6 +247,16 @@ def main() -> None:
         check("with a fallback for when the menu is not consulted",
               'case "v": paste(nil)' in swift, True)
 
+        # The panel is laid out by a stack against one spacing scale, not by
+        # hand-placed frames. Frames drifted every time a string changed length.
+        check("the panel uses a layout, not fixed frames",
+              "NSStackView" in swift and "NSLayoutConstraint.activate" in swift, True)
+        check("and one place holds its numbers", "enum Metric" in swift, True)
+        # Verified by rendering rather than by eye: --snapshot writes the panel to
+        # a PNG in either appearance, which is how the layout is actually checked.
+        check("the panel can be rendered headlessly", "--snapshot" in swift, True)
+        check("in both appearances", "darkAqua" in swift and "--light" in swift, True)
+
     print(f"\nOK — {PASSES['n']} assertions. Counts are right, and a stopped timer "
           f"is visible without reading a log.")
 

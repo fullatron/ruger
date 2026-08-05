@@ -27,6 +27,9 @@ let repoURL: URL = {
 
 let pythonURL = repoURL.appendingPathComponent(".venv/bin/python")
 
+/// The launchd job that imports and syncs. Kickstarted from "Run a tick".
+let TICK_LABEL = "ai.ruger.wispr"
+
 /// Run a `pkm` subcommand off the main thread. `input` is piped to stdin, which is
 /// how captured text travels: an argument would have to survive a shell.
 func runPKM(_ arguments: [String], input: String? = nil,
@@ -122,6 +125,27 @@ struct Snapshot {
 final class CaptureTextView: NSTextView {
     var onSubmit: (() -> Void)?
 
+    /// NSTextView has no placeholder, so it is drawn. An empty box with no prompt
+    /// is the difference between "type here" and "is this thing on".
+    var placeholder: String = "" { didSet { needsDisplay = true } }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !placeholder.isEmpty else { return }
+        let inset = textContainerInset
+        let origin = NSPoint(x: inset.width + (textContainer?.lineFragmentPadding ?? 0),
+                             y: inset.height)
+        (placeholder as NSString).draw(
+            at: origin,
+            withAttributes: [.font: font ?? .systemFont(ofSize: 13),
+                             .foregroundColor: NSColor.tertiaryLabelColor])
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        needsDisplay = true          // the placeholder appears again when emptied
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.modifierFlags.contains(.command) else {
             return super.performKeyEquivalent(with: event)
@@ -151,24 +175,48 @@ final class CaptureTextView: NSTextView {
     }
 }
 
+/// One place for the numbers the panel is built from, so nothing is hand-placed.
+private enum Metric {
+    static let width: CGFloat = 380
+    static let pad: CGFloat = 16
+    static let gap: CGFloat = 10
+    static let boxHeight: CGFloat = 104
+}
+
 final class CaptureViewController: NSViewController {
-    private let width: CGFloat = 360
     private let textView = CaptureTextView()
-    private let footer = NSTextField(labelWithString: "")
+    private let statusDot = NSTextField(labelWithString: "\u{25CF}")
+    private let statusLine = NSTextField(labelWithString: "")
+    private let countLine = NSTextField(labelWithString: "")
+    private let overdueTag = NSTextField(labelWithString: "")
     private let boardButton = NSButton()
     private var snapshot = Snapshot()
 
     var onCaptured: (() -> Void)?
 
+    /// A quiet text button: the panel has one loud control and everything else
+    /// stays out of the way.
+    private func quietButton(_ title: String, _ action: Selector) -> NSButton {
+        let b = NSButton(title: title, target: self, action: action)
+        b.bezelStyle = .inline
+        b.isBordered = false
+        b.font = .systemFont(ofSize: 11.5)
+        b.contentTintColor = .secondaryLabelColor
+        return b
+    }
+
+    private func label(_ text: String, size: CGFloat, weight: NSFont.Weight = .regular,
+                       colour: NSColor = .labelColor) -> NSTextField {
+        let f = NSTextField(labelWithString: text)
+        f.font = .systemFont(ofSize: size, weight: weight)
+        f.textColor = colour
+        return f
+    }
+
     override func loadView() {
-        let root = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 268))
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: Metric.width, height: 260))
 
-        let title = NSTextField(labelWithString: "What needs doing?")
-        title.font = .systemFont(ofSize: 13, weight: .semibold)
-        title.frame = NSRect(x: 14, y: 238, width: width - 28, height: 18)
-        root.addSubview(title)
-
-        textView.frame = NSRect(x: 0, y: 0, width: width - 28, height: 120)
+        // --- the box you type into ---------------------------------------
         textView.font = .systemFont(ofSize: 13)
         textView.isRichText = false
         // Dictation and pasted prose bring smart quotes and dashes. The quote check
@@ -176,66 +224,139 @@ final class CaptureViewController: NSViewController {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
-        textView.textContainerInset = NSSize(width: 5, height: 7)
+        textView.textContainerInset = NSSize(width: 8, height: 9)
         textView.allowsUndo = true          // or the Edit menu's Undo does nothing
         textView.isVerticallyResizable = true
         textView.autoresizingMask = [.width]
+        textView.drawsBackground = false
+        textView.placeholder = "Type, or dictate. Several tasks in one go is fine."
         textView.onSubmit = { [weak self] in self?.capture() }
 
-        let scroll = NSScrollView(frame: NSRect(x: 14, y: 108, width: width - 28, height: 124))
+        let scroll = NSScrollView()
         scroll.documentView = textView
         scroll.hasVerticalScroller = true
-        scroll.borderType = .bezelBorder
-        scroll.drawsBackground = true
-        root.addSubview(scroll)
+        scroll.drawsBackground = false
+        scroll.borderType = .noBorder
+        scroll.translatesAutoresizingMaskIntoConstraints = false
 
-        let hint = NSTextField(labelWithString: "⌘↩ to capture · Esc to close")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .secondaryLabelColor
-        hint.frame = NSRect(x: 14, y: 86, width: width - 28, height: 14)
-        root.addSubview(hint)
+        // A rounded, bordered surface rather than AppKit's bezel, which reads as
+        // a 2005 utility panel next to the rest of the product. NSBox resolves
+        // semantic colours per appearance, so this follows light and dark.
+        let box = NSBox()
+        box.boxType = .custom
+        box.fillColor = .textBackgroundColor
+        box.borderColor = .separatorColor
+        box.borderWidth = 1
+        box.cornerRadius = 7
+        box.contentViewMargins = .zero
+        box.translatesAutoresizingMaskIntoConstraints = false
+        box.contentView = scroll
 
-        let capture = NSButton(title: "Capture", target: self, action: #selector(captureClicked))
+        // --- the one loud control ----------------------------------------
+        let capture = NSButton(title: "Capture", target: self,
+                               action: #selector(captureClicked))
         capture.bezelStyle = .rounded
-        capture.controlSize = .small
-        capture.frame = NSRect(x: width - 94, y: 56, width: 80, height: 24)
-        root.addSubview(capture)
+        capture.keyEquivalent = "\r"
+        capture.keyEquivalentModifierMask = [.command]
+        capture.controlSize = .regular
+        // The panel's one loud control. It cannot be the window's default button
+        // (that would bind plain Return, which the box needs for newlines), so
+        // the accent is applied directly.
+        capture.bezelColor = .controlAccentColor
 
-        let line = NSBox(frame: NSRect(x: 0, y: 46, width: width, height: 1))
-        line.boxType = .separator
-        root.addSubview(line)
+        let hint = label("\u{2318}\u{21A9} to capture", size: 11.5,
+                         colour: .tertiaryLabelColor)
+        let hintRow = NSStackView(views: [hint, NSView(), capture])
+        hintRow.orientation = .horizontal
+        hintRow.alignment = .centerY
 
-        footer.font = .systemFont(ofSize: 11)
-        footer.textColor = .secondaryLabelColor
-        footer.maximumNumberOfLines = 2
-        footer.frame = NSRect(x: 14, y: 14, width: width - 120, height: 28)
-        root.addSubview(footer)
+        // --- what is going on ---------------------------------------------
+        statusDot.font = .systemFont(ofSize: 9)
+        statusLine.font = .systemFont(ofSize: 11.5)
+        statusLine.textColor = .secondaryLabelColor
+        countLine.font = .systemFont(ofSize: 11.5)
+        countLine.textColor = .tertiaryLabelColor
+
+        overdueTag.font = .systemFont(ofSize: 11, weight: .medium)
+        overdueTag.textColor = .systemRed
+
+        let statusRow = NSStackView(views: [statusDot, statusLine, NSView(), overdueTag])
+        statusRow.orientation = .horizontal
+        statusRow.alignment = .centerY
+        statusRow.spacing = 6
 
         boardButton.title = "Open board"
         boardButton.bezelStyle = .inline
         boardButton.isBordered = false
-        boardButton.font = .systemFont(ofSize: 11)
-        boardButton.contentTintColor = .linkColor
+        boardButton.font = .systemFont(ofSize: 11.5)
+        boardButton.contentTintColor = .secondaryLabelColor
         boardButton.target = self
         boardButton.action = #selector(openBoard)
-        boardButton.frame = NSRect(x: width - 100, y: 24, width: 86, height: 16)
-        root.addSubview(boardButton)
 
-        let quit = NSButton(title: "Quit", target: NSApp, action: #selector(NSApplication.terminate(_:)))
-        quit.bezelStyle = .inline
-        quit.isBordered = false
-        quit.font = .systemFont(ofSize: 11)
-        quit.contentTintColor = .secondaryLabelColor
-        quit.frame = NSRect(x: width - 100, y: 6, width: 86, height: 16)
-        root.addSubview(quit)
+        let actions = NSStackView(views: [
+            boardButton,
+            quietButton("Run a tick", #selector(runTick)),
+            NSView(),
+            quietButton("Quit", #selector(quit)),
+        ])
+        actions.orientation = .horizontal
+        actions.alignment = .centerY
+        actions.spacing = 12
+
+        let divider = NSBox()
+        divider.boxType = .separator
+
+        // --- one column, one spacing scale --------------------------------
+        let column = NSStackView(views: [
+            label("What needs doing?", size: 13, weight: .semibold),
+            box, hintRow, divider, statusRow, countLine, actions,
+        ])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = Metric.gap
+        column.translatesAutoresizingMaskIntoConstraints = false
+        column.setCustomSpacing(6, after: box)
+        column.setCustomSpacing(14, after: hintRow)
+        column.setCustomSpacing(12, after: divider)
+        column.setCustomSpacing(6, after: statusRow)
+        column.setCustomSpacing(14, after: countLine)
+        root.addSubview(column)
+
+        NSLayoutConstraint.activate([
+            column.leadingAnchor.constraint(equalTo: root.leadingAnchor,
+                                            constant: Metric.pad),
+            column.trailingAnchor.constraint(equalTo: root.trailingAnchor,
+                                             constant: -Metric.pad),
+            column.topAnchor.constraint(equalTo: root.topAnchor, constant: Metric.pad),
+            column.bottomAnchor.constraint(equalTo: root.bottomAnchor,
+                                           constant: -Metric.pad),
+            box.heightAnchor.constraint(equalToConstant: Metric.boxHeight),
+            box.widthAnchor.constraint(equalTo: column.widthAnchor),
+            divider.widthAnchor.constraint(equalTo: column.widthAnchor),
+            hintRow.widthAnchor.constraint(equalTo: column.widthAnchor),
+            statusRow.widthAnchor.constraint(equalTo: column.widthAnchor),
+            actions.widthAnchor.constraint(equalTo: column.widthAnchor),
+            scroll.topAnchor.constraint(equalTo: box.topAnchor),
+            scroll.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+        ])
 
         view = root
     }
 
     func apply(_ snap: Snapshot) {
         snapshot = snap
-        footer.stringValue = snap.footer
-        // A dead link is worse than no link — the same rule the SwiftBar menu follows.
+        let fresh = !snap.stale
+        statusDot.textColor = fresh ? .systemGreen : .systemRed
+        statusLine.stringValue = fresh
+            ? "Last import \(snap.ago)"
+            : "Timer looks stopped \u{00B7} last ran \(snap.ago)"
+        statusLine.textColor = fresh ? .secondaryLabelColor : .systemRed
+        countLine.stringValue =
+            "\(snap.total) in Notion \u{00B7} \(snap.todo) to do \u{00B7} \(snap.done) done"
+        overdueTag.stringValue = snap.overdue > 0 ? "\(snap.overdue) overdue" : ""
+        // A dead link is worse than no link — the same rule the log follows.
         boardButton.isHidden = !snap.serving
     }
 
@@ -245,9 +366,18 @@ final class CaptureViewController: NSViewController {
 
     func clear() {
         textView.string = ""
+        textView.needsDisplay = true
     }
 
     @objc private func captureClicked() { capture() }
+    @objc private func quit() { NSApp.terminate(nil) }
+
+    @objc private func runTick() {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        task.arguments = ["kickstart", "-p", "gui/\(getuid())/\(TICK_LABEL)"]
+        try? task.run()
+    }
 
     @objc private func openBoard() {
         if let url = URL(string: snapshot.url) { NSWorkspace.shared.open(url) }
@@ -393,6 +523,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // responder to set, and the box would open needing a click.
         controller.focusBox()
     }
+}
+
+/// `RugerBar --snapshot out.png [--light] [--stale]` renders the popover to a
+/// file and exits. A popover cannot be screenshotted headlessly and a menu bar
+/// is not a thing you can measure by eye, so this is how the layout gets
+/// checked — the same reason `board.html` takes `?view=` and `?theme=`.
+func renderSnapshot(to path: String, light: Bool, stale: Bool) {
+    let controller = CaptureViewController()
+    let view = controller.view
+    view.appearance = NSAppearance(named: light ? .aqua : .darkAqua)
+
+    var snap = Snapshot()
+    snap.total = 14; snap.todo = 9; snap.doing = 1; snap.done = 4
+    snap.overdue = 2; snap.notes = 9; snap.pushed = 14
+    snap.tickAge = stale ? 7200 : 140
+    snap.stale = stale
+    snap.serving = true
+    controller.apply(snap)
+
+    // A popover supplies its own material, so the panel itself is transparent.
+    // Rendered to a file that means white paper, and every label drawn in
+    // `.labelColor` came out white-on-white and looked missing. The backdrop is
+    // part of the harness, not of the panel.
+    let backdrop = NSBox(frame: view.bounds)
+    backdrop.boxType = .custom
+    backdrop.borderWidth = 0
+    backdrop.fillColor = .windowBackgroundColor
+    backdrop.autoresizingMask = [.width, .height]
+    view.addSubview(backdrop, positioned: .below, relativeTo: nil)
+
+    // Hosted in a real (offscreen) window: text does not draw through
+    // `cacheDisplay` on a view that has never had one.
+    let window = NSWindow(contentRect: view.bounds, styleMask: [.borderless],
+                          backing: .buffered, defer: false)
+    window.appearance = view.appearance
+    window.contentView = view
+    window.setFrameOrigin(NSPoint(x: -10_000, y: -10_000))
+    window.orderFront(nil)
+    view.layoutSubtreeIfNeeded()
+    window.displayIfNeeded()
+
+    // Through the PDF path rather than `cacheDisplay`: the latter renders the
+    // geometry but drops the text of layer-backed labels, which reads as a broken
+    // layout when the layout is fine.
+    let pdf = view.dataWithPDF(inside: view.bounds)
+    guard let image = NSImage(data: pdf),
+          let tiff = image.tiffRepresentation,
+          let rep = NSBitmapImageRep(data: tiff) else { return }
+
+    if let data = rep.representation(using: .png, properties: [:]) {
+        try? data.write(to: URL(fileURLWithPath: path))
+        print("wrote \(path)  \(Int(view.bounds.width))x\(Int(view.bounds.height))")
+    }
+}
+
+let args = CommandLine.arguments
+if let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count {
+    let app = NSApplication.shared
+    app.setActivationPolicy(.prohibited)
+    renderSnapshot(to: args[i + 1],
+                   light: args.contains("--light"),
+                   stale: args.contains("--stale"))
+    exit(0)
 }
 
 let app = NSApplication.shared

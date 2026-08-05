@@ -77,6 +77,9 @@ integration access. Skip the second and every call returns 404.
 ```bash
 sh scripts/build-menubar.sh     # optional: the menu bar app
 sh scripts/install-agents.sh    # run everything automatically at login
+
+# how the panel's layout gets checked, since a popover cannot be screenshotted
+./build/RugerBar --snapshot /tmp/panel.png [--light] [--stale]
 ```
 
 That installs three background agents: the importer (every 5 minutes), the local
@@ -219,7 +222,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **877 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **881 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash
