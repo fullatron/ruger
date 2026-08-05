@@ -60,19 +60,20 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 603 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 663 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
 .venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (54)
-.venv/bin/python scratch/test_providers.py          # JSON salvage + provider select  (30)
+.venv/bin/python scratch/test_providers.py          # JSON salvage + shape check      (38)
 .venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF      (59)
 .venv/bin/python scratch/test_tasks.py              # manual tasks, merge-refresh     (59)
-.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (119)
+.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (123)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
-.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (47)
+.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (49)
+.venv/bin/python scratch/test_instruct.py           # fuzzy dedup + instructions      (48)
 cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -103,6 +104,8 @@ pkm/prompts/            the extraction prompt, editable without touching code
 pkm/notes.py            UI ingest, source detail, manual task creation
 pkm/settings.py         reads/writes the provider settings in .env
 pkm/dedup.py            Jaccard over stopworded tokens (D4)
+pkm/similar.py          the LLM tie-break for paraphrased duplicates (D17)
+pkm/instruct.py         "mark the deck one done" -> edits to existing rows (D19)
 pkm/sync.py             ingest -> extract -> dedup -> rows
 pkm/server.py           stdlib http.server; board, notes and settings endpoints
 pkm/board.html          the whole UI. No React, no bundler, no build step
@@ -440,6 +443,42 @@ there. Nothing new reaches `events` (D2, for the third time).
 - **Ruger records no audio (D12).** The dialog is a text field; dictation is
   Wispr Flow's job or the OS's. Do not add a recorder without also picking a
   transcription route — the model configured here is text-only.
+
+## Duplicates and instructions
+
+§11 in the PRD. `pkm/similar.py` and `pkm/instruct.py`.
+
+- **The tie-break must never block ingest.** A failing judge falls back to the
+  lexical answer: losing a meeting to a timed-out dedup call would be far worse
+  than the duplicate it was preventing. Every `except` in `similar.py` is there on
+  purpose. `PKM_FUZZY_DEDUP=0` switches it off entirely.
+- **One call with every candidate in it, not one per pair.** That is what makes it
+  affordable, and it is why `AMBIGUOUS_FLOOR` can be as low as 0.05 — the floor
+  only decides whether that single call happens.
+- **The floor was measured, and the first guess was wrong.** At 0.2 nothing ever
+  reached the judge, because paraphrases of one errand scored 0.08 and 0.09: after
+  stopwording they often share only the person's name. `pkm dedupe` reported "no
+  duplicates" without having asked anything. If you change it, re-measure against a
+  real board rather than reasoning about it.
+- **A merge keeps every mention.** `db.merge_commitments` moves them across and
+  resyncs, so the survivor's count covers both askers and the detail panel still
+  shows who said what (D5). It returns the dropped row's Notion page id rather than
+  acting on it — that module makes no network calls.
+- **Only an instruction ever re-sends Status.** `notion.push(force_status={ids})`,
+  given only the ids that moved. D9 is otherwise intact, and `test_notion.py`
+  asserts both halves: no Status in a normal push, Status in a forced one.
+- **An instruction is the one model output with no quote to check.** So it is
+  fenced instead: ids must have been offered and still be open, only four fields
+  may move, every value is validated in `instruct.validate`, there is no delete,
+  and ambiguity is refused rather than guessed. Do not add a delete action here.
+- **The router fails toward `create`, always.** A spurious task is visible and
+  deletable; a command that swallows new work is not.
+- **The provider's shape check derives from the schema it was handed.** It used to
+  test `parsed["commitments"]`, one prompt's key hardcoded into the check that
+  exists because a schema might be ignored — so the judge and the router were both
+  read as wrong-shaped and raised. Both failed silently, one of them into a
+  default. `base.shape_ok` and `base.array_key` read `required` from the schema; do
+  not reintroduce a literal key.
 
 ## The Notion board
 

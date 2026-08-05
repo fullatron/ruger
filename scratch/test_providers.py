@@ -127,6 +127,35 @@ def main() -> None:
     raises("over-long transcript refused up front",
            lambda: small._check_budget("sys", "x" * 100_000))
 
+    print("\nthe shape check comes from the schema, not from one prompt's keys:")
+    # The bug this covers: the OpenAI path judged every response by
+    # `parsed["commitments"]`, so the same-job judge and the capture router — which
+    # return other shapes — were treated as wrong-shaped, walked the whole fallback
+    # ladder, and raised. Both features failed silently, one of them into a default.
+    from pkm.providers.base import array_key, shape_ok
+
+    commitments = {"type": "object", "properties": {"commitments": {"type": "array"}},
+                   "required": ["commitments"]}
+    router = {"type": "object", "properties": {"kind": {"type": "string"}},
+              "required": ["kind"]}
+    judge = {"type": "object",
+             "properties": {"same_as": {"type": "integer"},
+                            "confidence": {"type": "string"}},
+             "required": ["same_as", "confidence"]}
+
+    check("extraction still accepted", shape_ok({"commitments": []}, commitments), True)
+    check("a router answer is accepted", shape_ok({"kind": "command"}, router), True)
+    check("a judge answer is accepted",
+          shape_ok({"same_as": 4, "confidence": "high"}, judge), True)
+    check("a missing required key is refused", shape_ok({"kind": "x"}, judge), False)
+    check("and a non-object always is", shape_ok(["kind"], router), False)
+
+    check("a bare array is wrapped under the array key",
+          array_key(commitments), "commitments")
+    check("but a router has no array to wrap into", array_key(router), None)
+    check("so its bare array stays wrong",
+          shape_ok(parse_json_object('["command"]', list_key=None), router), False)
+
     print("\nOK — salvage handles real model output, selection and guards behave.")
 
 

@@ -25,7 +25,7 @@ bad rows off the board.
 
 from __future__ import annotations
 
-from .base import Provider, ProviderError, parse_json_object
+from .base import Provider, ProviderError, array_key, parse_json_object, shape_ok
 
 # Rough chars-per-token for budgeting only. Deliberately pessimistic: better to
 # refuse a borderline transcript than let the endpoint silently truncate the
@@ -140,14 +140,17 @@ class OpenAICompatibleProvider(Provider):
                 raise ProviderError(_brief(exc, self.model)) from exc
 
             try:
-                parsed = parse_json_object(self._text(response))
+                # The key a bare array would belong under comes from the schema, so
+                # this works for every prompt rather than only for extraction.
+                parsed = parse_json_object(self._text(response),
+                                           list_key=array_key(schema))
             except ProviderError as exc:
                 last_error = str(exc)
                 parsed = None
 
             # An endpoint can accept a schema and ignore it, so judge the
             # response by its shape, not by the status code.
-            if parsed is not None and isinstance(parsed.get("commitments"), list):
+            if parsed is not None and shape_ok(parsed, schema):
                 self._json_mode = mode  # remember what actually worked
                 usage = {
                     "provider": self.name,
@@ -164,8 +167,9 @@ class OpenAICompatibleProvider(Provider):
                 mode = _FALLBACK[mode]
                 continue
 
+            wanted = ", ".join(sorted(schema.get("required") or [])) or "an object"
             raise ProviderError(
-                f"{self.model} did not return a usable commitments object "
+                f"{self.model} did not return an object with {wanted} "
                 f"(tried {', '.join(attempted)}): {last_error or 'wrong shape'}"
             )
 

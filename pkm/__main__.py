@@ -374,6 +374,17 @@ def main(argv: list[str] | None = None) -> int:
     p_capture.add_argument("--notify", action="store_true",
                            help="report through a macOS notification (for the menu bar)")
     p_capture.add_argument("--json", action="store_true", help="machine-readable")
+    p_capture.add_argument("--create", dest="mode", action="store_const", const="create",
+                           help="skip the router: treat it as new work")
+    p_capture.add_argument("--command", dest="mode", action="store_const", const="command",
+                           help="skip the router: treat it as an instruction")
+
+    p_dedupe = sub.add_parser(
+        "dedupe", help="find open commitments that are the same job worded differently")
+    p_dedupe.add_argument("--apply", action="store_true",
+                          help="merge them (default is to print and change nothing)")
+    p_dedupe.add_argument("--archive", action="store_true",
+                          help="also archive the duplicate's Notion page")
 
     p_status = sub.add_parser("status", help="board counts and whether the timer is alive")
     p_status.add_argument("--json", action="store_true", help="machine-readable")
@@ -492,7 +503,8 @@ def main(argv: list[str] | None = None) -> int:
 
         text = " ".join(args.text).strip() if args.text else sys.stdin.read()
         try:
-            result = capture_mod.run(text, push=not args.no_push)
+            result = capture_mod.run(text, push=not args.no_push,
+                                     mode=getattr(args, "mode", None) or "auto")
         except capture_mod.CaptureError as exc:
             result = {"error": str(exc), "tasks": [], "merged": 0, "dropped": 0,
                       "pushed": 0}
@@ -501,9 +513,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.json:
             import json as _json
 
-            print(_json.dumps({k: v for k, v in result.items() if k != "tasks"}
-                              | {"tasks": [t["task"] for t in result["tasks"]],
-                                 "summary": line}, indent=2))
+            payload = {k: v for k, v in result.items() if k != "tasks"}
+            payload["tasks"] = [t["task"] for t in result.get("tasks") or []]
+            payload["summary"] = line
+            print(_json.dumps(payload, indent=2, default=str))
+        elif result.get("kind") == "command":
+            print(line)
+            for change in result["changes"]:
+                print(f"  · {change['line']}")
+            for note in result["unclear"]:
+                print(f"  ? {note}")
+            for note in result["refused"]:
+                print(f"  ! {note}")
+            if result.get("push_error"):
+                print(f"  ! Notion: {result['push_error']}")
         else:
             print(line)
             for task in result["tasks"]:
@@ -517,6 +540,60 @@ def main(argv: list[str] | None = None) -> int:
         if args.notify:
             capture_mod.notify("Ruger", line)
         return 1 if result.get("error") else 0
+
+    if cmd == "dedupe":
+        from . import similar
+
+        with closing(db.connect()) as conn:
+            found = similar.review(conn)
+            if not found:
+                print("no duplicate commitments found among the open ones.")
+                return 0
+
+            print(f"{len(found)} pair(s) look like the same job:\n")
+            for pair in found:
+                keep, drop = pair["keep"], pair["drop"]
+                print(f"  keep  #{keep['id']:<4} {_w(keep['task'], 60)}")
+                print(f"  merge #{drop['id']:<4} {_w(drop['task'], 60)}")
+                print(f"        {pair['how']} · overlap {pair['score']:.2f} · {pair['why']}")
+                print()
+
+            if not args.apply:
+                print("nothing changed. Re-run with --apply to merge them.")
+                return 0
+
+            merged, archived = 0, 0
+            for pair in found:
+                # Re-read: an earlier merge in this run may have removed a row that
+                # a later pair also names.
+                if db.get_commitment(conn, int(pair["keep"]["id"])) is None:
+                    continue
+                if db.get_commitment(conn, int(pair["drop"]["id"])) is None:
+                    continue
+                with db.transaction(conn):
+                    outcome = db.merge_commitments(conn, int(pair["keep"]["id"]),
+                                                  int(pair["drop"]["id"]))
+                merged += 1
+                if args.archive and outcome["external_id"]:
+                    from .connectors import notion
+
+                    try:
+                        notion._request("PATCH", f"/pages/{outcome['external_id']}",
+                                        {"archived": True})
+                        archived += 1
+                    except notion.NotionError as exc:
+                        print(f"  ! could not archive {outcome['task'][:40]}: {exc}")
+
+            print(f"merged {merged} pair(s); every mention was kept, so the "
+                  f"survivor's count now covers both.")
+            if args.archive:
+                print(f"archived {archived} duplicate Notion page(s).")
+            else:
+                leftover = [p for p in found if p["drop"]["external_id"]]
+                if leftover:
+                    print(f"{len(leftover)} duplicate(s) still have a Notion page. "
+                          f"Re-run with --archive, or `pkm pull --prune`.")
+        return 0
 
     if cmd == "status":
         from . import status as status_mod

@@ -422,6 +422,30 @@ def test_push_and_pull(conn):
     check("no update mentioned Status", any("Status" in b for b in bodies), False)
     check("so the card is still Done", status_of(STATE["pages"][page_id]), "Done")
 
+    print("\n  ...except for an id an instruction explicitly moved (§11):")
+    # `force_status` is the override D9 anticipated: a person said "mark it done",
+    # so Notion is told. It has to stay this narrow — one id, asked for by name.
+    moved = notion.read_ruger_id(STATE["pages"][page_id])
+    db.set_status(conn, moved, "todo")
+    STATE["patches"].clear()
+    notion.push(conn, only={moved}, force_status={moved})
+    bodies = [p["body"].get("properties", {}) for p in STATE["patches"]]
+    check("one page was touched", len(bodies), 1)
+    check("and this time Status went with it", "Status" in bodies[0], True)
+    check("carrying the local value", status_of(STATE["pages"][page_id]), "To do")
+
+    print("\n  a forced push still leaves every other card alone:")
+    STATE["patches"].clear()
+    notion.push(conn, force_status={moved})
+    forced = [p for p in STATE["patches"]
+              if "Status" in p["body"].get("properties", {})]
+    check("only the named id carried Status", len(forced), 1)
+
+    # Put back what the pull tests below expect to find: the card dragged to Done
+    # in Notion while the local row still says todo.
+    db.set_status(conn, moved, "todo")
+    STATE["pages"][page_id]["properties"]["Status"] = {"select": {"name": "Done"}}
+
     print("\npull — Notion's status comes back:")
     stats = notion.pull(conn)
     check("pages read", stats["pages"], 3)

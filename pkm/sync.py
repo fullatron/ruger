@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 
-from . import config, db, dedup, episodes, extract
+from . import config, db, dedup, episodes, extract, similar
 
 
 def apply_extraction(
@@ -29,7 +29,10 @@ def apply_extraction(
 
     for item in kept:
         candidates = db.open_commitments_for_owner(conn, item["owner_norm"])
-        match, score = dedup.find_match(item, candidates)
+        # Lexical first; the judge only sees pairs that are plausible and did not
+        # match on wording (§11). It cannot block: on any failure this is the
+        # lexical answer.
+        match, score, _how = similar.resolve(item, candidates)
 
         if match is not None:
             # Same owner, near-identical text, still open: this is the same
@@ -198,7 +201,7 @@ def reextract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> 
             # promise made elsewhere (D4).
             elsewhere = [r for r in db.open_commitments_for_owner(conn, item["owner_norm"])
                          if int(r["episode_id"]) != episode_id]
-            match, _ = dedup.find_match(item, elsewhere)
+            match, _score, _how = similar.resolve(item, elsewhere)
             if match is not None:
                 db.add_mention(conn, int(match["id"]), episode_id, occurred_at,
                                item["quote"], item["speaker"])

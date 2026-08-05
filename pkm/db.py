@@ -517,6 +517,45 @@ SELECT c.id,
 """
 
 
+def merge_commitments(conn: sqlite3.Connection, keep_id: int, drop_id: int) -> dict:
+    """Fold one commitment into another. Returns what the caller has to clean up.
+
+    Every mention moves across, so the survivor's count reflects both askers and
+    the detail panel still shows who said what — a merge must not erase the
+    evidence that two people wanted this (D5).
+
+    The dropped row's Notion page id is handed back rather than acted on: this
+    module does not make network calls.
+    """
+    if keep_id == drop_id:
+        raise ValueError("cannot merge a commitment into itself")
+
+    keep = get_commitment(conn, keep_id)
+    drop = get_commitment(conn, drop_id)
+    if keep is None or drop is None:
+        raise ValueError("both commitments must exist")
+
+    conn.execute(
+        "UPDATE OR IGNORE commitment_mentions SET commitment_id = ? WHERE commitment_id = ?",
+        (keep_id, drop_id),
+    )
+    # UPDATE OR IGNORE leaves behind any row that would have collided with the
+    # survivor's own (episode, quote); those are the same mention twice.
+    conn.execute("DELETE FROM commitment_mentions WHERE commitment_id = ?", (drop_id,))
+
+    # An earlier due date is the one that matters, and one side may have none.
+    dates = [d for d in (keep["due_date"], drop["due_date"]) if d]
+    if dates:
+        conn.execute("UPDATE commitments SET due_date = ? WHERE id = ?",
+                     (min(dates), keep_id))
+
+    conn.execute("DELETE FROM commitments WHERE id = ?", (drop_id,))
+    resync_mentions(conn, keep_id)
+
+    return {"keep": keep_id, "dropped": drop_id, "task": drop["task"],
+            "external_id": drop["external_id"], "external_url": drop["external_url"]}
+
+
 def board_summary(conn: sqlite3.Connection, today: str | None = None) -> dict:
     """Counts for `pkm status` and the menu bar item.
 

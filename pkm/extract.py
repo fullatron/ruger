@@ -121,6 +121,33 @@ def load_prompt(path: Path | None = None) -> tuple[str, str]:
     return system, user
 
 
+def fill(template: str, values: dict) -> str:
+    """Substitute `{{NAME}}` placeholders. The whole templating language."""
+    out = template
+    for key, value in values.items():
+        out = out.replace("{{" + key + "}}", str(value))
+    return out
+
+
+def ask_json(prompt_path: Path, values: dict, schema: dict, provider=None) -> dict:
+    """One model call against one prompt file, returning parsed JSON.
+
+    For the questions that are not extraction: is this the same commitment, and is
+    this text a new task or an instruction. Same rule applies as everywhere else —
+    the answer is untrusted, and the caller validates it against real rows.
+    """
+    from .providers import ProviderError, get_provider
+
+    system, user_template = load_prompt(prompt_path)
+    provider = provider or get_provider()
+    try:
+        parsed, _usage = provider.complete_json(
+            system, fill(user_template, values), schema)
+    except ProviderError as exc:
+        raise ExtractionError(str(exc)) from exc
+    return parsed
+
+
 def render(template: str, episode) -> str:
     # `episode` is usually a sqlite3.Row, which has no .get() — normalise first.
     if not isinstance(episode, dict):
@@ -140,10 +167,7 @@ def render(template: str, episode) -> str:
         "PARTICIPANTS": ", ".join(participants) if participants else "(not recorded)",
         "TRANSCRIPT": episode["transcript"],
     }
-    out = template
-    for key, value in values.items():
-        out = out.replace("{{" + key + "}}", str(value))
-    return out
+    return fill(template, values)
 
 
 # --- the verbatim-quote check ----------------------------------------------

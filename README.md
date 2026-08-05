@@ -92,6 +92,7 @@ open http://127.0.0.1:8765
 | `python -m pkm table` | print the current board |
 | `python -m pkm status [--json]` | board counts, and whether the timer is still alive |
 | `python -m pkm capture "…"` | one line → tasks → Notion. Reads stdin if no text is given |
+| `python -m pkm dedupe [--apply]` | find open commitments that are the same job worded differently |
 | `python -m pkm drops` | what the verbatim-quote check rejected, and why |
 | `python -m pkm revalidate [--apply]` | re-check stored drops against the current checker. No model calls |
 | `python -m pkm wispr [--dry-run --limit N]` | Wispr Flow → inbox |
@@ -467,6 +468,68 @@ mention and bumps the count, so a task promised three weeks running is the most
 interesting thing on the board and the card says so. Owner matching folds your
 `PKM_ME` aliases and the first person to a single key.
 
+**Token overlap cannot see a paraphrase.** "Send Nila the KT doc" and "Share the
+handover sheet with Nila" are one delivery and share almost nothing after
+stopwording. So when overlap is plausible but under the threshold, a model is asked
+whether it is the same job — the tie-break D4 deferred until the dumb version was
+proven to misclassify. Three rules make it safe to have in the ingest path:
+
+- **It never blocks ingest.** A failing judge falls back to the lexical answer.
+- **One question, not one per pair** — every candidate goes into a single call.
+- **It merges only on a confident, unambiguous, offered id.** A wrong merge hides a
+  real commitment; a wrong split leaves two cards you can see. An id it was not
+  shown is refused.
+
+Turn it off with `PKM_FUZZY_DEDUP=0` for a run that must cost nothing.
+
+Better matching does nothing about duplicates already on the board, so
+`pkm dedupe` sweeps the open ones and prints its case before touching anything:
+
+```
+$ pkm dedupe
+1 pair(s) look like the same job:
+
+  keep  #4    Send Nila the KT doc
+  merge #9    Share the handover sheet with Nila
+        llm · overlap 0.09 · KT and handover are the same document here
+
+nothing changed. Re-run with --apply to merge them.
+```
+
+`--apply` merges, keeping **every mention**, so the survivor's count covers both
+askers and the panel still shows who said what: a merge must not erase the evidence
+that two people wanted this. The survivor is the row already in Notion, so the card
+someone may have opened is the one that stays. `--archive` also archives the
+duplicate's Notion page.
+
+The floor was calibrated against a real board, not guessed. At 0.2 the judge was
+never consulted, because the pairs worth asking about scored 0.08 and 0.09 — two
+descriptions of one errand often share only the person's name.
+
+### Moving cards by saying so
+
+The capture box takes instructions as well as new work: *"mark the deck one done"*,
+*"push the invoice chase to friday"*, *"that banner task is actually Maya's"*. A
+small router call decides create-vs-command first, because running an instruction
+through the capture prompt would produce a new task called "Mark the deck one done".
+Every router failure resolves to `create`: a spurious task is visible and
+deletable, while treating new work as a command would silently drop it.
+
+**This is the only path where the model changes records that already exist**, so it
+cannot lean on the quote check — an instruction quotes nothing. The safety is
+structural:
+
+- only ids it was shown, and only rows still open;
+- only four fields, all reversible: status, due date, owner, rename. **No delete**;
+- every value validated here rather than trusted — a bad status, an unparseable
+  date and an empty rename are all refused and reported;
+- **ambiguity is refused, not guessed.** Two candidate matches means no change and
+  a note saying which two.
+
+A card an instruction moved **does** reach Notion, via the explicit
+`force_status` override. Every other push still leaves Status alone, so a routine
+re-push can never drag a card out of a column you moved it to.
+
 ### Structured output is requested, never trusted
 
 On the Anthropic path the JSON schema is **enforced server-side**, so the shape
@@ -582,6 +645,8 @@ pkm/prompts/             the extraction prompt, editable without touching code
 pkm/notes.py             UI ingest, source detail, manual task creation
 pkm/settings.py          reads/writes the provider settings in .env
 pkm/dedup.py             Jaccard over stopworded tokens
+pkm/similar.py           the LLM tie-break for paraphrased duplicates
+pkm/instruct.py          "mark the deck one done" -> edits to existing rows
 pkm/sync.py              ingest -> extract -> dedup -> rows
 pkm/server.py            stdlib http.server; board, notes and settings endpoints
 pkm/board.html           the whole UI. No React, no bundler, no build step
@@ -622,20 +687,20 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **603
-assertions** across eleven suites.
+No framework — scripts that print PASS/FAIL and exit non-zero. **663
+assertions** across twelve suites.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # idempotent ingest             (22)
 .venv/bin/python scratch/test_extraction.py         # quote check + dedup           (54)
-.venv/bin/python scratch/test_providers.py          # JSON salvage + selection      (30)
+.venv/bin/python scratch/test_providers.py          # JSON salvage + shape check    (38)
 .venv/bin/python scratch/test_ui.py                 # note ingest, sources, CSRF    (59)
 .venv/bin/python scratch/test_tasks.py              # manual tasks, merge-refresh   (59)
-.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (119)
+.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (123)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
 .venv/bin/python scratch/test_status.py             # counts, liveness, contract    (79)
-.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion    (47)
+.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion    (49)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```

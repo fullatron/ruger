@@ -479,6 +479,75 @@ paragraph into it feels like hitting a character cap. The capture cap is 20,000
 characters — around 3,000 words — and exists only to keep a transcript-sized paste
 out of a single prompt.
 
+---
+
+## 11. The same job twice, and moving cards by saying so
+
+Two problems that arrive together once capture makes it cheap to add work: the
+same errand entering twice under different words, and having no way to close
+something without opening a browser.
+
+**D17 — D4's LLM tie-break, finally.** D4 said *"escalate to an LLM tie-break only
+for candidate pairs if this misclassifies. Not yet — this is deliberately the dumb
+version."* It has misclassified: Jaccard over stopworded tokens cannot see that
+"Send Nila the KT doc" and "Share the handover sheet with Nila" are one delivery,
+because after stopwording they share almost nothing.
+
+`pkm/similar.py` asks a model, and three properties are non-negotiable:
+
+- **It never blocks ingest.** A failing judge falls back to the lexical answer.
+  Losing a meeting because a tie-break timed out would be far worse than the
+  duplicate it was preventing.
+- **One question, not one per pair.** Every candidate goes into a single call, so
+  the cost is one call rather than N — which is what makes it affordable at all.
+- **It merges only on a confident, unambiguous, offered id.** A wrong merge hides a
+  real commitment inside another card; a wrong split leaves two cards you can see.
+  An id that was not in the list it was shown is a hallucination and is refused.
+
+*Calibration, measured rather than guessed.* The first floor was 0.2 overlap and
+it was wrong: on the live board the paraphrase pairs worth asking about scored
+**0.08 and 0.09**, so nothing ever reached the judge and `pkm dedupe` reported "no
+duplicates" without having asked anything. The floor is 0.05, and the sweep asks
+one question per row with no floor at all.
+
+**D18 — the board is swept, not just the new arrivals.** Better matching from here
+on does nothing about what is already there, so `pkm dedupe` reviews open rows and
+prints its case before touching anything. `--apply` merges, keeping **every
+mention**: the survivor's count then covers both askers and the detail panel still
+shows who said what, because a merge must not erase the evidence that two people
+wanted this (D5). The survivor is the row already in Notion, so the card someone
+may have opened is the one that stays.
+
+**D19 — an instruction may move a card, and Status finally goes out.** "mark the
+deck one done", "push the invoice to friday", "that one is actually Maya's".
+D9 says push never re-sends Status so a routine re-push cannot drag a card out of
+Done — and it says the override "wants to be an explicit `push --force-status`".
+This is it: `notion.push(force_status={ids})`, given only the ids an instruction
+moved. Every other push is untouched.
+
+**This is the only path where a model changes records that already exist**, so it
+cannot lean on the verbatim-quote check — an instruction quotes nothing. The safety
+is structural instead: only ids that were offered and are still open, only four
+fields (status, due date, owner, rename), every value validated here rather than
+trusted, no delete at all, and each change reported field by field so a wrong move
+is visible immediately. **Ambiguity is refused, not guessed**: two candidate
+matches means no change and a note saying why.
+
+**D20 — one box, so it needs a router.** Run "mark the deck one done" through the
+capture prompt and you get a new task called that, which is worse than doing
+nothing. A small router call classifies create-vs-command first, and **every one of
+its failure modes resolves to `create`**: a spurious task is visible and deletable,
+while treating new work as a command would silently drop it.
+
+*A bug worth recording, because it broke both features at once and did it
+quietly.* The OpenAI-compatible provider judged every response by
+`parsed["commitments"]` — one prompt's key, hardcoded into the shape check that
+exists precisely because a schema might be ignored. So the judge and the router
+were both read as wrong-shaped, walked the whole fallback ladder, and raised. The
+judge reported itself "unavailable" and the router failed safe to `create`, which
+is exactly why nobody would have noticed. The check now derives its required keys
+from the schema it was handed.
+
 ### Subtasks — Phase 2, specced but not built
 
 A captured task often implies its own steps, and the context to break it down is
@@ -505,7 +574,8 @@ part of the record, and cost nothing to add later.
 | **Step 5** | Notion push/pull | **done** |
 | **Step 6** | The timer, `pkm status`, the menu bar app | **done** |
 | **Step 7** | Capture (§10) — dialog → inbox → extract → Notion | **done** |
-| **Step 8** | Subtasks as checklist blocks (§10) | not started |
+| **Step 8** | Fuzzy dedup + instructions (§11) | **done** |
+| **Step 9** | Subtasks as checklist blocks (§10) | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

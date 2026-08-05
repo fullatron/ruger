@@ -436,7 +436,8 @@ def _database() -> str:
 
 
 def push(conn: sqlite3.Connection, *, dry_run: bool = False,
-         limit: int | None = None, only: set[int] | None = None) -> dict:
+         limit: int | None = None, only: set[int] | None = None,
+         force_status: set[int] | None = None) -> dict:
     """Send every commitment to Notion: create what is missing, update the rest.
 
     Idempotent by construction — the Notion page id is stored on the row, so a
@@ -446,6 +447,12 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
     dictated sentence costs one API call rather than a re-send of the whole
     board: push is O(board) by design, which is fine on a timer and far too slow
     to sit behind a notification.
+
+    `force_status` is the one way Status is ever re-sent, and it must stay narrow.
+    Normally Notion owns which column a card sits in (D9) precisely so a routine
+    re-push cannot drag a card out of Done. An instruction — "mark the deck one
+    done" — is explicit human intent about that column, so those ids get their
+    Status written. Nothing else does, ever.
     """
     database_id = _database()
     rows = db.commitments_to_push(conn)
@@ -479,6 +486,10 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
 
         try:
             if existing:
+                if force_status and int(row["id"]) in force_status:
+                    opening = status_payload(row["status"], profile)
+                    if opening:
+                        properties.update(opening)
                 _request("PATCH", f"/pages/{existing}", {"properties": properties})
                 stats["updated"] += 1
             else:

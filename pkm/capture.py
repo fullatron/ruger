@@ -116,6 +116,11 @@ def notify(title: str, message: str) -> None:
 
 def summarise(result: dict) -> str:
     """One line for a notification or a terminal."""
+    if result.get("kind") == "command":
+        from . import instruct
+
+        return instruct.summarise(result)
+
     if result.get("error"):
         return result["error"]
 
@@ -140,12 +145,34 @@ def summarise(result: dict) -> str:
 
 def run(text: str, *, conn: sqlite3.Connection | None = None, push: bool = True,
         when: datetime | None = None, inbox: Path | None = None,
-        extract_fn=None) -> dict:
+        extract_fn=None, mode: str = "auto", route_fn=None,
+        instruct_fn=None) -> dict:
     """Capture text, extract tasks from it, and send them to Notion.
+
+    `mode` is 'auto' (route it), 'create' or 'command'. Routing exists because one
+    box has to do both: run "mark the deck one done" through the capture prompt and
+    you get a *new task* called that, which is worse than doing nothing (§11).
 
     Returns what happened, including the tasks themselves, so the caller can say
     so without querying anything.
     """
+    from . import instruct
+
+    kind = mode
+    if mode == "auto":
+        kind = (route_fn or instruct.route)(text)
+
+    if kind == "command":
+        # An instruction changes rows that exist; it writes nothing to the inbox,
+        # because nobody promised anything and there is no evidence to keep.
+        own = conn is None
+        conn = conn or db.connect()
+        try:
+            return (instruct_fn or instruct.run)(conn, text, push=push)
+        finally:
+            if own:
+                conn.close()
+
     path = write_note(text, when=when, inbox=inbox)
 
     own_conn = conn is None
