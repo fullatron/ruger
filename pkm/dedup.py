@@ -75,6 +75,25 @@ def normalise_owner(owner: str, direction: str | None = None) -> str:
     return raw
 
 
+def numbers(normalised: str) -> set[str]:
+    """Tokens carrying digits: the part of a task that identifies *which* one."""
+    return {t for t in normalised.split() if any(c.isdigit() for c in t)}
+
+
+def distinguishable(a: str, b: str) -> bool:
+    """True when two texts name different things despite similar wording.
+
+    "Send invoice 1041" and "Send invoice 1042" share every word but one and
+    score 0.75, comfortably over the threshold — so dedup merged them and one
+    invoice silently vanished. Numbers are usually the whole point of the task.
+
+    Only applies when BOTH carry digits. "Send the report by 5pm" against "send
+    the report" is one task described twice, and must still merge.
+    """
+    na, nb = numbers(a), numbers(b)
+    return bool(na) and bool(nb) and na != nb
+
+
 def find_match(
     candidate: dict,
     existing: list,
@@ -89,6 +108,8 @@ def find_match(
     best, best_score = None, 0.0
 
     for row in existing:
+        if distinguishable(candidate["task_norm"], row["task_norm"]):
+            continue
         score = jaccard(candidate["task_norm"], row["task_norm"])
         if score > best_score:
             best, best_score = row, score

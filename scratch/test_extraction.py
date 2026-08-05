@@ -115,7 +115,38 @@ def check(label, actual, expected):
         raise SystemExit(1)
 
 
+def check_numbers_are_not_noise() -> None:
+    """Two tasks that differ only by an identifier are two tasks.
+
+    Found by the stress harness: twelve "Send report N to Maya" collapsed into
+    one row. Stopwording leaves "send report 1041 maya" against "send report 1042
+    maya", which scores 0.75 — well over the 0.6 threshold — so dedup merged them
+    and an invoice silently vanished.
+    """
+    print("\ndifferent numbers are different tasks:")
+    def item(text):
+        return {"task": text, "task_norm": dedup.normalise_text(text)}
+
+    a = item("Send Maya the signed invoice 1041")
+    b = item("Send Maya the signed invoice 1042")
+    check("they score above the threshold",
+          round(dedup.jaccard(a["task_norm"], b["task_norm"]), 2) >= 0.6, True)
+    check("and are still not merged", dedup.find_match(a, [b])[0], None)
+
+    check("the same identifier still merges",
+          dedup.find_match(item("Send Maya the signed invoice 1041 today"),
+                           [a])[0] is not None, True)
+
+    # Only when both sides carry digits: a time on one side must not split a pair.
+    timed = {"task": "Send the report by 5pm",
+             "task_norm": dedup.normalise_text("Send the report by 5pm")}
+    plain = {"task": "Send the report", "task_norm": dedup.normalise_text("Send the report")}
+    check("a number on one side only does not split them",
+          dedup.find_match(timed, [plain])[0] is not None, True)
+
+
 def main() -> None:
+    check_numbers_are_not_noise()
     print("verbatim-quote check:")
     t = "Alex: I'll audit all the team LinkedIn profiles.\nMaya: Sounds good."
     check("exact match", extract.verify_quote("I'll audit all the team LinkedIn profiles.", t), (True, "exact"))

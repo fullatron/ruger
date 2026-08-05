@@ -215,7 +215,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **721 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **727 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash
@@ -232,6 +232,7 @@ done
 | `test_notion` `test_wispr` `test_capture` | push/pull, the importer, capture |
 | `test_status` `test_instruct` `test_capture_handoff` | the menu bar, instructions, the handoff contract |
 | `test_live` | a real provider call. **Costs tokens** |
+| `stress.py` | hostile input, concurrency, failure injection. `STRESS_LIVE=1` adds a real model and a real Notion, and archives everything it creates |
 
 Everything except `test_live.py` feeds canned model output — or, for Notion, a
 stdlib HTTP server standing in for `api.notion.com` — through the real validator,

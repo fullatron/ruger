@@ -153,6 +153,37 @@ def main() -> None:
         queued = db.episodes_needing_extraction(conn)
         check("edited episode re-queued", [q["title"] for q in queued], ["Monday standup"])
 
+        print("\nconcurrent writers do not lose writes:")
+        # Found by the stress harness: a plain `BEGIN` is deferred, so a
+        # connection that reads then writes must upgrade its lock, and SQLite
+        # refuses to wait for that — nine of twelve writes were lost to
+        # "database is locked". `transaction()` uses BEGIN IMMEDIATE now.
+        import threading
+        from contextlib import closing as _closing
+
+        dbfile = root / "concurrent.db"
+        with _closing(db.connect(dbfile)):
+            pass
+        errors: list[str] = []
+
+        def writer(n: int) -> None:
+            try:
+                with _closing(db.connect(dbfile)) as c:
+                    with db.transaction(c):
+                        db.log_event(c, "captured", f"note {n}")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{type(exc).__name__}: {exc}")
+
+        threads = [threading.Thread(target=writer, args=(i,)) for i in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        check("no writer failed", errors, [])
+        with _closing(db.connect(dbfile)) as c:
+            check("all twelve writes landed",
+                  c.execute("SELECT COUNT(*) AS n FROM sync_events").fetchone()["n"], 12)
+
         print("\nOK — 5 files in, 5 events, 5 episodes, zero duplicates on re-run.")
 
 

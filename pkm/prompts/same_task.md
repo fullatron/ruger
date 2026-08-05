@@ -36,6 +36,9 @@ Same job:
 - "Book the trade show banner" / "Pay the banner invoice" — sequential, two
   actions.
 - "Send Maya the deck" / "Send Theo the deck" — different people, two sends.
+- "Send invoice 1041" / "Send invoice 1042" — **different numbers are different
+  things.** Invoices, chapters, sprints, versions, rooms: if the two texts carry
+  different identifiers, they are two jobs however alike the wording.
 - "Write the debrief doc" / "Share the debrief doc" — writing is not sending.
 
 A repeat of the same request by a different person is still the same job: what

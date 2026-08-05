@@ -20,15 +20,23 @@ def content_hash(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+# How long a writer waits for another writer before giving up. There are several
+# processes: the 5-minute tick, the board server, the menu bar app and whatever
+# you just captured. They collide in normal use.
+BUSY_TIMEOUT_MS = 10_000
+
+
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
     """Open a connection with the schema applied. `:memory:` works too."""
     target = config.DB_PATH if path is None else path
     if target != ":memory:":
         target = Path(target)
         target.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(target, isolation_level=None)
+    conn = sqlite3.connect(target, isolation_level=None,
+                           timeout=BUSY_TIMEOUT_MS / 1000)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute(f"PRAGMA busy_timeout = {BUSY_TIMEOUT_MS}")
     migrate(conn)
     return conn
 
@@ -85,7 +93,18 @@ def _backfill_log(conn: sqlite3.Connection) -> None:
 
 @contextmanager
 def transaction(conn: sqlite3.Connection):
-    conn.execute("BEGIN")
+    """A write transaction. `IMMEDIATE`, and that word is load-bearing.
+
+    A plain `BEGIN` is deferred: the connection takes a read lock, and asks to
+    upgrade when it first writes. If another connection is already writing, that
+    upgrade cannot wait — waiting would deadlock two readers who both want to
+    write — so SQLite returns "database is locked" instantly, `busy_timeout` and
+    all. Twelve concurrent captures lost nine of their writes that way.
+
+    `BEGIN IMMEDIATE` takes the write lock up front, which *is* something
+    `busy_timeout` will wait for.
+    """
+    conn.execute("BEGIN IMMEDIATE")
     try:
         yield conn
     except Exception:
