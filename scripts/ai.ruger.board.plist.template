@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Serves the board at 127.0.0.1:8765 for as long as you are logged in.
+     __REPO__ is substituted by scripts/install-agents.sh. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.ruger.board</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__REPO__/.venv/bin/python</string>
+    <string>-m</string>
+    <string>pkm</string>
+    <string>serve</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <!-- Up at login and kept up: the menu bar item links to this port, and a link
+       to a dead port is worse than no link. -->
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Bounds the damage when it cannot start at all — a port already taken by
+       something else would otherwise respawn as fast as launchd can fork. -->
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.pkm/logs/board.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.pkm/logs/board.log</string>
+
+  <!-- Adaptive rather than Background: Background throttles I/O, and this one
+       answers requests while you are looking at it. -->
+  <key>ProcessType</key>
+  <string>Adaptive</string>
+</dict>
+</plist>

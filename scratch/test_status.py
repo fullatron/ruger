@@ -137,6 +137,53 @@ def main() -> None:
         check("days", status.ago(90000), "1 day ago")
         check("never", status.ago(None), "never")
 
+        print("\nthe board's port is probed, not assumed:")
+        # The bug this covers: the menu offered "Open board" whether or not
+        # anything was serving, so the link went to a dead port and the click
+        # just failed in the browser.
+        import socket as _socket
+
+        free = _socket.socket()
+        free.bind(("127.0.0.1", 0))
+        spare_port = free.getsockname()[1]
+        free.close()
+        check("a port with no listener reads as down",
+              status.board_up("127.0.0.1", spare_port), False)
+
+        listener = _socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        # Deep backlog on purpose: the probe connects and closes without anyone
+        # accepting, so a backlog of 1 fills up and the *second* probe is refused
+        # — which reads as "board down" and has nothing to do with the code.
+        listener.listen(64)
+        live_port = listener.getsockname()[1]
+        try:
+            check("one with a listener reads as up",
+                  status.board_up("127.0.0.1", live_port), True)
+
+            os.environ["PKM_PORT"] = str(live_port)
+            config.reload()
+            up_menu = status.swiftbar(status.snapshot(conn))
+            check("so the menu offers the link",
+                  f"Open board | href=http://127.0.0.1:{live_port}" in up_menu, True)
+            check("and does not offer to start it", "Start board" in up_menu, False)
+        finally:
+            listener.close()
+
+        os.environ["PKM_PORT"] = str(spare_port)
+        config.reload()
+        down_menu = status.swiftbar(status.snapshot(conn))
+        check("with nothing serving, no link is offered",
+              "Open board | href=" in down_menu, False)
+        check("it says so instead", "Board is not running" in down_menu, True)
+        check("and offers to start it",
+              f"param3=gui/{os.getuid()}/{status.BOARD_LABEL}" in down_menu, True)
+        check("the human rendering says so too",
+              "NOT RUNNING" in status.render(conn, "human"), True)
+
+        os.environ.pop("PKM_PORT", None)
+        config.reload()
+
         print("\nthe SwiftBar menu renders from the same snapshot:")
         touch(120)
         menu = status.swiftbar(status.snapshot(conn))

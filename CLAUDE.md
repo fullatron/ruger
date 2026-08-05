@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 530 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 538 assertions.
 
 ```bash
 .venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
@@ -71,7 +71,7 @@ No framework — scripts that print PASS/FAIL and exit non-zero. 530 assertions.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
-.venv/bin/python scratch/test_status.py             # counts + timer liveness         (55)
+.venv/bin/python scratch/test_status.py             # counts, liveness, port probe    (63)
 cd scratch && ../.venv/bin/python test_server.py    # step 3: the endpoints           (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -358,6 +358,16 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   the interesting part has died. `STALE_AFTER` is 900s — three missed wakes,
   which is where a slow machine stops being the explanation. A slept laptop is
   the common false positive and it clears itself on the next wake.
+- **The board needs its own agent; the timer does not serve anything.**
+  `ai.ruger.wispr` only imports and extracts, so with it alone nothing listens on
+  8765 and every link to the board fails. `ai.ruger.board` runs `pkm serve` with
+  `KeepAlive`. Both are installed from templates by `scripts/install-agents.sh`,
+  because a plist carries absolute paths and committing one person's home
+  directory is how the timer became unreproducible the first time.
+- **The menu probes the port before offering a link.** `status.board_up()` is a
+  TCP connect, not an HTTP request: it answers the only question a link needs and
+  cannot be confused by a slow first render. A link to a dead port is worse than
+  no link, because the click fails in the browser with nothing to act on.
 - **`pkm status --swiftbar` owns the menu's formatting, not the plugin.**
   `scripts/ruger.5m.sh` resolves the repo through its own symlink and shells
   into this. That keeps the plugin free of a `jq` dependency, and it is why the

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Wispr Flow -> inbox -> board -> Notion, every 5 minutes.
+     __REPO__ is substituted by scripts/install-agents.sh. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ai.ruger.wispr</string>
+
+  <!-- Absolute path: launchd hands the job a bare environment, and the PKM_*
+       settings come from .env at the repo root rather than from here. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/sh</string>
+    <string>__REPO__/scripts/wispr-tick.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__REPO__</string>
+
+  <!-- Every 5 minutes. Repeat ticks are cheap: the import writes only when a
+       note changed, extraction runs only for episodes whose transcript is new
+       or changed, and the script skips Notion entirely when nothing moved. -->
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- Catch up at login, and once on wake for a tick missed during sleep. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__HOME__/.pkm/logs/wispr.log</string>
+  <key>StandardErrorPath</key>
+  <string>__HOME__/.pkm/logs/wispr.log</string>
+
+  <!-- Never let a stuck tick pin a core. -->
+  <key>Nice</key>
+  <integer>5</integer>
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

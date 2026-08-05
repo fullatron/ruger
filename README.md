@@ -169,16 +169,32 @@ Maya: I'll send you the Beacon login today.
 
 ## The timer
 
-`scripts/wispr-tick.sh`, driven by `~/Library/LaunchAgents/ai.ruger.wispr.plist`
-every 300s with `RunAtLoad`. One tick is import → sync → push → pull. Log:
-`~/.pkm/logs/wispr.log`.
+Two launchd agents, installed from templates so the paths match your checkout
+rather than someone else's home directory:
 
 ```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.ruger.wispr.plist
-launchctl bootout   gui/$(id -u)/ai.ruger.wispr        # stop it
+sh scripts/install-agents.sh            # install or reinstall both
+sh scripts/install-agents.sh --remove   # stop and remove both
+```
+
+| | |
+|---|---|
+| `ai.ruger.wispr` | `scripts/wispr-tick.sh` every 300s with `RunAtLoad`. One tick is import → sync → push → pull. Log: `~/.pkm/logs/wispr.log` |
+| `ai.ruger.board` | `pkm serve`, `RunAtLoad` and `KeepAlive`, so the board answers on 8765 for as long as you are logged in. Log: `~/.pkm/logs/board.log` |
+
+**The board needs its own agent.** The timer only imports and extracts; it never
+serves anything. Without `ai.ruger.board` nothing is listening on 8765, and every
+link to the board fails — including the one in the menu bar.
+
+```bash
 launchctl kickstart -p gui/$(id -u)/ai.ruger.wispr     # run one tick now
 launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
+launchctl bootout   gui/$(id -u)/ai.ruger.board        # stop the board
 ```
+
+Re-running the installer boots each agent out before bootstrapping it again,
+which is also how an edited plist takes effect: launchd caches the old definition
+otherwise, and you end up debugging one that is no longer on disk.
 
 - The script has **no `set -e`**: each stage is independent, so a provider outage
   must not stop the push of what is already extracted, and a Notion outage must
@@ -217,8 +233,13 @@ after the interesting part has died.
 For a menu bar item, `scripts/ruger.5m.sh` is a [SwiftBar](https://swiftbar.app)
 plugin. A filled green `◉ 11` means it ticked recently; a hollow red `◌ 11` means
 the timer looks stopped, and the menu then shows the `launchctl kickstart` line
-that restarts it. The dropdown carries the counts, plus Open board, Run a tick
-now, and Open log.
+that restarts it. The dropdown carries the counts, plus Run a tick now and Open
+log.
+
+**Open board appears only when something is listening on the port.** The menu
+probes it with a TCP connect first, because a link to a dead port is worse than no
+link: the click just fails in the browser with nothing to act on. When the board
+is down the menu says so and offers to start it.
 
 ```bash
 brew install --cask swiftbar
@@ -529,7 +550,7 @@ Provider-native names still work: `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`,
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **530
+No framework — scripts that print PASS/FAIL and exit non-zero. **538
 assertions** across ten suites.
 
 ```bash
@@ -541,7 +562,7 @@ assertions** across ten suites.
 .venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion   (119)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end      (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox        (26)
-.venv/bin/python scratch/test_status.py             # counts + timer liveness       (55)
+.venv/bin/python scratch/test_status.py             # counts, liveness, port probe  (63)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints                 (22)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```

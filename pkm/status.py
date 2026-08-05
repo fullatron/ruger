@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,12 @@ from . import config, db
 STALE_AFTER = 900
 
 LABEL = "ai.ruger.wispr"
+BOARD_LABEL = "ai.ruger.board"
+
+# The board is a separate process from the timer, and for a while nothing
+# started it: the menu offered "Open board" and the link went to a dead port.
+# So the menu asks the port whether anyone is home before offering the link.
+PROBE_TIMEOUT = 0.25
 
 # The board's own palette, so the menu reads as part of the same product.
 GREEN = "#4dab9a"
@@ -44,6 +51,23 @@ def log_path() -> Path:
 def url_for() -> str:
     """Read at call time, so a non-default PKM_PORT reaches the menu too."""
     return f"http://{config.SERVER_HOST}:{config.SERVER_PORT}"
+
+
+def board_up(host: str | None = None, port: int | None = None) -> bool:
+    """Is anything actually listening on the board's port?
+
+    A TCP connect rather than an HTTP request: it answers the only question that
+    matters for offering a link, costs a quarter second at worst, and cannot be
+    confused by a slow first render.
+    """
+    try:
+        with socket.create_connection(
+            (host or config.SERVER_HOST, int(port or config.SERVER_PORT)),
+            timeout=PROBE_TIMEOUT,
+        ):
+            return True
+    except OSError:
+        return False
 
 
 def _now() -> datetime:
@@ -73,6 +97,7 @@ def snapshot(conn: sqlite3.Connection, now: datetime | None = None) -> dict:
     return {
         "board": board,
         "tick": tick(now),
+        "serving": board_up(),
         "url": url_for(),
         "db": str(config.DB_PATH),
         "inbox": str(config.INBOX),
@@ -119,7 +144,8 @@ def human(snap: dict) -> str:
     lines.append(f"notion     {b['pushed']} of {b['total']} pushed")
     lines.append(f"timer      {_headline(snap)}")
     lines.append(f"           {snap['tick']['log']}")
-    lines.append(f"board at   {snap['url']}")
+    lines.append(f"serving    {snap['url']}"
+                 + ("" if snap["serving"] else "   NOT RUNNING (python -m pkm serve)"))
     return "\n".join(lines)
 
 
@@ -151,7 +177,15 @@ def swiftbar(snap: dict) -> str:
                f"| color={GREY}")
 
     out.append("---")
-    out.append(f"Open board | href={snap['url']}")
+    if snap["serving"]:
+        out.append(f"Open board | href={snap['url']}")
+    else:
+        # Offering a link to a port nobody is listening on is worse than saying
+        # so: the click just fails in the browser with nothing to act on.
+        out.append(f"Board is not running | color={RED}")
+        out.append(f"Start board | bash=/bin/launchctl param1=kickstart "
+                   f"param2=-p param3=gui/{os.getuid()}/{BOARD_LABEL} "
+                   f"terminal=false refresh=true")
     # `terminal=false` keeps a stray Terminal window from opening on every click.
     out.append(f"Run a tick now | bash=/bin/launchctl param1=kickstart param2=-p "
                f"param3=gui/{os.getuid()}/{LABEL} terminal=false refresh=true")
