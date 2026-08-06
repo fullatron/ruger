@@ -336,9 +336,49 @@ hints), not in `board.html`.
 
 ## Where the product is won or lost
 
-`pkm/prompts/extract_commitments.md`. Iterate there, run
-`python -m pkm sync --table`, eyeball the output against the transcripts, repeat.
-Code changes are rarely the answer to a bad board.
+`pkm/prompts/extract_commitments.md` and `extract_capture.md`. Iterate there,
+run the notes you actually recorded through them, and read the output. Code
+changes are rarely the answer to a bad board.
+
+```bash
+.venv/bin/python scratch/tune_prompt.py --limit 4          # newest notes, old vs new
+.venv/bin/python scratch/tune_prompt.py --kind capture     # only the dictated ones
+.venv/bin/python scratch/tune_prompt.py --episode 15       # one note
+.venv/bin/python scratch/tune_prompt.py --text "send maya the deck tomorrow"
+```
+
+It reads the real database and **writes nothing** — no row, no Notion call — so
+it is safe against a live board, which is the point: a temp fixture cannot tell
+you whether a prompt edit helps on your own meetings. It costs one model call
+per note.
+
+### The task line is written, not copied
+
+The failure this catches: the model hands the source span back as the `task`.
+`quote` must be verbatim, so the cheapest response to "extract a task" is to
+echo the sentence — and the card then reads exactly like the thing someone
+mumbled at their phone. Real examples from the board: `write comparison blogs`,
+`de-anonymize the case studies that we have created`, `Add Me to team Slack
+channel`.
+
+Both prompts now carry a **"Writing the task line"** section: rewrite never copy,
+verb first, name the object, name the account (the meeting title usually holds
+it), cut the framing, keep labels like P0 that carry meaning, never write "Me"
+inside a task. Each has a worked before/after table, which is the part that
+actually moves a small model. `tune_prompt.py` flags any task identical to its
+quote as an `ECHO`.
+
+The one rule that reads as counter-intuitive and is load-bearing: **the prompt
+tells the model that rewriting is safe because only `quote` is checked.**
+Without it the model treats the whole object as if it had to match the source.
+
+- **A pronoun is not an owner.** "I want you to write the blogs" made the model
+  emit `owner: "you"`, `direction: "theirs"` on some runs and `me`/`mine` on
+  others — a coin flip that produced cards nobody owns and poisoned dedup, which
+  groups open work by owner. The prompt resolves "you" to the user (these notes
+  are always the user's own recording); `extract.NOT_A_NAME` is the backstop and
+  drops the rest. English-only on purpose: guessing at every language's pronouns
+  would throw away real names.
 
 ## Environment
 

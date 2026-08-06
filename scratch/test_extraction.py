@@ -228,6 +228,29 @@ def main() -> None:
     check("direction mine forces me", dedup.normalise_owner("Maya", "mine"), "me")
     check("other person kept", dedup.normalise_owner("Maya", "theirs"), "maya")
 
+    print("\na pronoun is not a person, so it is not an owner:")
+    # A card owned by "you" is one nobody ever picks up, and it poisons dedup,
+    # which groups still-open work by owner. The prompt says so; this is the
+    # backstop for when the model says it anyway.
+    episode = {"transcript": "I want you to write the comparison blogs by Friday.",
+               "kind": "meeting"}
+    def owned(owner, direction="theirs"):
+        return extract.validate({"commitments": [{
+            "task": "Write the comparison blogs", "direction": direction,
+            "owner": owner, "due_date": None, "speaker": None,
+            "quote": "I want you to write the comparison blogs by Friday."}]}, episode)
+
+    for pronoun in ("you", "You", "we", "they", "someone", "the team", "TBD"):
+        kept, drops = owned(pronoun)
+        check(f"{pronoun!r} refused",
+              (len(kept), "pronoun, not a person" in drops[0]["_reason"]), (0, True))
+    kept, _ = owned("Maya")
+    check("a real name is kept", kept[0]["owner"], "Maya")
+    # `mine` is folded to `me` regardless, so it can never be ambiguous — and a
+    # note that addresses the user as "you" resolves there, not into a drop.
+    kept, _ = owned("you", "mine")
+    check("but mine is never ambiguous", kept[0]["owner"], "me")
+
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         (root / "week1.md").write_text(WEEK_1, encoding="utf-8")

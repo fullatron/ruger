@@ -57,10 +57,48 @@ If a name is spoken but you cannot tell who acts, choose **mine**. The user
 dictated this to themselves; they are the safe default, and a task wrongly filed
 as theirs is one they stop expecting to do.
 
+## Writing the task line
+
+A capture is dictated in a hurry, so it arrives as speech: "I want to…", "we
+should probably…", trailing off halfway. **Your job is to turn that into a task,
+not to hand it back.** A card that reads exactly like the sentence someone
+mumbled at their phone looks like nothing happened to it.
+
+**The test:** would this line make sense on its own, in a list of forty others,
+three weeks from now? If not, it is not finished.
+
+1. **Rewrite it. Never copy it.** `quote` is evidence and is copied word for
+   word. `task` is *written*, by you, from that evidence. If the two come out as
+   the same string, you skipped this step. Rewriting is safe: **only `quote` is
+   checked against the note.** Phrasing the task well cannot break anything.
+2. **Verb first, imperative, sentence case.** Strip the lead-in — "I want to",
+   "I need to", "remind me to", "we should", "can you". "Write a LinkedIn post
+   on the pricing change", not "i want to write a linkedin post about pricing".
+3. **Name the object and the account.** Which post, which list, which client. If
+   the note names a company, product or project, keep it and spell it properly:
+   "northwind.ai" becomes "Northwind". Never add a name the note does not have.
+4. **Keep labels that carry meaning.** P0, blocker, Q3 — a priority the note
+   states is a specific, not filler.
+5. **Do not pad a note that is already a task.** "Pay rent" is a finished task.
+   Capitalise it and stop. Inventing detail is worse than a short line.
+
+Never write **Me** inside a task line; `owner` carries that.
+
+Aim for three to twelve words. Dictation runs on; a card should not.
+
+### Worked examples
+
+| Dictated | Weak — a copy | Strong — a task |
+|---|---|---|
+| "create a list of p0 activities for northwind.ai." | Create a list of p0 activities for northwind.ai | Draft the P0 activity list for Northwind |
+| "i want to write a linkedin post about the pricing change" | I want to write a LinkedIn post about the pricing change | Write a LinkedIn post on the pricing change |
+| "talk about maya from beacon with the northwind team" | Talk about maya from beacon with the northwind team | Raise Maya (Beacon) with the Northwind team |
+| "pay rent" | — | Pay rent |
+| "send theo the deck tomorrow and also chase the invoice" | send theo the deck tomorrow and also chase the invoice | Send Theo the deck · Chase the invoice *(two tasks)* |
+
 ## Fields
 
-- `task` — imperative, one line, no hedging, no trailing period. "Send Maya the
-  revised deck", not "I need to maybe send Maya the deck".
+- `task` — the line described above. Imperative, one line, no trailing period.
 - `direction` — `mine` or `theirs`, per above.
 - `owner` — `me`, or the person's name as spoken.
 - `due_date` — `YYYY-MM-DD`, or `null`. Resolve against the capture date, given
@@ -117,7 +155,8 @@ key — for `due_date` and `speaker`.
 Captured: {{MEETING_DATE}}
 The user of this system: {{ME_NAMES}}
 
-Turn the note below into tasks. Copy every `quote` verbatim from this text.
+Turn the note below into tasks. Copy every `quote` verbatim from this text, and
+**write** every `task` rather than handing the sentence back.
 
 <note>
 {{TRANSCRIPT}}

@@ -42,15 +42,70 @@ The user of this system is: {{ME_NAMES}}
 - `direction: "theirs"` — somebody else took it on, including a promise made to
   the user. Set `owner` to that person's name exactly as it appears in the text.
 
-Never guess an owner. If the notes say "we'll circle back" with no named person,
-drop it.
+**`owner` is a person's name, or `me`. A pronoun is not a name.** "you", "we",
+"they", "someone", "the team" are never owners.
+
+- These notes are the user's own recording. A line addressed to **"you"** is
+  addressed to *them*, unless the notes make it clear another person is being
+  spoken to. "I want you to write the comparison blogs" is `mine` / `me`.
+- "We'll circle back" names nobody at all. Drop it.
+
+Never guess an owner. A commitment you cannot attach to a person is one nobody
+picks up, so leaving it out is the right answer.
+
+## Writing the task line
+
+This is the line a person reads. Everything else on the card is scaffolding
+around it, so this is the part worth spending effort on.
+
+**The test:** would this line make sense on its own, in a list of forty others,
+three weeks from now, with the meeting closed? If someone would have to open the
+notes to work out what it refers to, it is not finished.
+
+1. **Rewrite it. Never copy it.** `quote` is evidence and is copied word for
+   word. `task` is *written*, by you, from that evidence. If the two come out as
+   the same string, you skipped this step — go back and write the task.
+   Rewriting is safe: **only `quote` is checked against the notes.** You cannot
+   break anything by phrasing the task well.
+2. **Verb first, imperative, sentence case.** "Write the pricing comparison
+   blogs" — not "writing comparison blogs", not "comparison blogs", not
+   "we need to write comparison blogs".
+3. **Name the object.** Which document, which post, which channel, which
+   invoice. "Send the deck" is not a task. "Send Maya the revised Q3 deck" is.
+4. **Name the account.** If the notes — *including the meeting title* — show
+   this work belongs to a client, product, project or account, say so in the
+   task. "Write the pricing comparison blogs for Northwind", not "write
+   comparison blogs". Use only a name that actually appears in the notes or the
+   title. Never invent one and never attach one you are guessing at.
+5. **Cut the framing.** What holds a sentence together in speech is noise on a
+   card: "I want you to", "we should probably", "another task can be around",
+   "can we look at whether", "one of the items is", "that we have created".
+6. **Keep the labels that carry meaning.** A priority or stage the notes state
+   outright — P0, blocker, Q3 — is a specific, not filler. Keep it.
+
+Never write **Me** inside a task line; `owner` carries that. Write it the way a
+person would: "Ask Kavi to enable prospecting access for me".
+
+Aim for four to twelve words, under about eighty characters. If it will not fit,
+you are describing a project rather than a task.
+
+### Worked examples
+
+| The notes said | Weak — a copy | Strong — a task |
+|---|---|---|
+| *(meeting: "Northwind Pricing Strategy")* "I want you to create a to-do list where we add one of the P0 tasks as write comparison blogs," | write comparison blogs | Write the P0 pricing comparison blogs for Northwind |
+| *(same meeting)* "Another task in P0 can be around whether we can de-anonymize the case studies that we have created." | de-anonymize the case studies that we have created | De-anonymize the Northwind case studies (P0) |
+| "(Maya) Reach out to Me to align on GTM actionables and loop in Kavi" | Reach out to Me to align on GTM actionables and loop in Kavi | Align with me on GTM actionables and loop in Kavi |
+| "(Maya) Provision Slack access today, on personal email if workable" | Provision Slack access today, on personal email if workable | Provision Slack access, personal email if needed |
+| "Yeah, I'll get you that thing we talked about by Friday." | get you that thing we talked about | *(drop it — nobody can tell what "that thing" is)* |
+
+The last row matters as much as the others. A task nobody can act on is worse
+than no task: it is noise that has to be read and dismissed every day. Precision
+beats recall.
 
 ## Fields
 
-- `task` — imperative, one line, no hedging. "Audit the team LinkedIn profiles",
-  not "Alex is going to look at maybe auditing the profiles". No trailing
-  period. Keep the specifics that make it recognisable (which profiles, which
-  doc); drop the filler.
+- `task` — the line described above. Imperative, one line, no trailing period.
 - `direction` — `mine` or `theirs`.
 - `owner` — `me`, or the person's name as written.
 - `due_date` — `YYYY-MM-DD`, or `null` if no date was given. Resolve relative
@@ -109,8 +164,12 @@ Date: {{MEETING_DATE}}
 Known participants: {{PARTICIPANTS}}
 The user of this system: {{ME_NAMES}}
 
+The meeting title above often names the account, client or project this work
+belongs to. When a task would otherwise be ambiguous, use it — but only when the
+title really is the subject of that task.
+
 Extract the commitments from the notes below. Copy every `quote` verbatim from
-this text.
+this text, and **write** every `task` rather than copying it.
 
 <notes>
 {{TRANSCRIPT}}

@@ -299,6 +299,21 @@ def verify_quote(quote: str, transcript: str, *, min_words: int | None = None,
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+# A pronoun is not a person. The prompt says so; this is the backstop, because
+# a card owned by "you" or "the team" is one nobody ever picks up — and it also
+# poisons dedup, which groups still-open work by owner. Only checked for
+# `theirs`: `mine` is folded to `me` a few lines down and cannot be ambiguous.
+#
+# English-only on purpose. Guessing at the pronoun set of every language would
+# be worse than the problem: a real name wrongly matched here is a commitment
+# silently thrown away.
+NOT_A_NAME = {
+    "you", "u", "yourself", "we", "us", "our team", "they", "them", "someone",
+    "somebody", "someone else", "anyone", "everyone", "everybody", "team",
+    "the team", "all", "both", "unknown", "unassigned", "tbd", "n a", "none",
+}
+
+
 def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
     """Check one model response against the transcript.
 
@@ -334,6 +349,10 @@ def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
             continue
         if not owner:
             record["_reason"] = "no owner named"
+            dropped.append(record)
+            continue
+        if direction == "theirs" and dedup.normalise_owner(owner, direction) in NOT_A_NAME:
+            record["_reason"] = f"owner {owner!r} is a pronoun, not a person"
             dropped.append(record)
             continue
 
