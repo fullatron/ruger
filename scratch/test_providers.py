@@ -55,6 +55,19 @@ def main() -> None:
           parse_json_object('{"result":{"commitments":[{"task":"Audit the profiles"}]}}'), GOOD)
     check("empty list preserved", parse_json_object('{"commitments":[]}'), {"commitments": []})
 
+    # MiniMax M2.7 on Featherless returns the whole answer inside an array
+    # (measured 2026-08-06). Wrapping that again buries the list one level down,
+    # the validator correctly refuses the result, and every task is lost to a
+    # stray bracket. Unwrapping renames nothing, so a genuinely wrong shape is
+    # still wrong.
+    check("the answer wrapped in an array is unwrapped, not wrapped twice",
+          parse_json_object('[{"commitments":[{"task":"Audit the profiles"}]}]'), GOOD)
+    check("and an empty one survives it",
+          parse_json_object('[{"commitments":[]}]'), {"commitments": []})
+    check("two objects are not one answer, so the old rule still applies",
+          parse_json_object('[{"commitments":[]},{"commitments":[]}]'),
+          {"commitments": [{"commitments": []}, {"commitments": []}]})
+
     print("\n  braces inside strings must not confuse the scanner:")
     tricky = 'Here:\n{"commitments":[{"task":"Fix the {broken} thing","quote":"use } carefully"}]}'
     check("brace in a string value",

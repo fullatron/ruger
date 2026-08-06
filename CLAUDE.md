@@ -55,8 +55,34 @@ back**, not the status code, and walks down
 `json_schema → json_object → plain prompting`, remembering what worked.
 
 `parse_json_object` repairs *packaging* only — fences, leading prose, bare
-arrays. It must never rename or invent fields: a wrong-shaped response has to
-stay wrong so the validator can reject it.
+arrays, and an answer wrapped in a one-element array. It must never rename or
+invent fields: a wrong-shaped response has to stay wrong so the validator can
+reject it.
+
+### Models measured on this board (2026-08-06, Featherless, note #15)
+
+Run them yourself with `PKM_MODEL=… scratch/tune_prompt.py`. The comparison that
+matters is not a benchmark score, it is whether the same note gives the same
+answer twice.
+
+| Model | Time/note | Verdict |
+|---|---|---|
+| `google/gemma-4-31B-it` | ~12s | Both tasks, right owners, a distinct verbatim quote each, same answer every run. **Kept.** |
+| `MiniMaxAI/MiniMax-M2.7` | 32–73s | Found the tasks once in three runs. Reasons for 700–1300 tokens first, ignores "cut the framing", answers `owner: "you"` every time. |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 60–122s | Empty on some runs; when it answers, both tasks share one quote. Too slow for a 5-minute tick. |
+
+Bigger and slower lost to a 31B here, and both failures were mechanical rather
+than about reasoning. Each cost a real fix, both of which help any model:
+
+- **`max_tokens` is not a constant.** Nemotron 3 caps output at 4096 and 400s on
+  our default 8000. That 400 was being read as a JSON-mode rejection, so the
+  mode walk burned three requests, stepped down to plain prompting and reported
+  "did not return an object" — sending you to the prompt for a fault that was
+  one number in a request body. `_token_cap` reads the cap out of the error and
+  retries the same mode.
+- **MiniMax returns `[{"commitments": […]}]`,** the answer inside an array
+  rather than being one. The bare-array rule then wrapped it again and every
+  task was lost to a stray bracket.
 
 ## Tests
 

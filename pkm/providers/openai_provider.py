@@ -25,6 +25,8 @@ bad rows off the board.
 
 from __future__ import annotations
 
+import re
+
 from .base import Provider, ProviderError, array_key, parse_json_object, shape_ok
 
 # Rough chars-per-token for budgeting only. Deliberately pessimistic: better to
@@ -130,6 +132,14 @@ class OpenAICompatibleProvider(Provider):
             try:
                 response = self._create(system, user, mode, schema)
             except Exception as exc:
+                cap = _token_cap(exc)
+                if cap and cap < self.max_tokens:
+                    # Take the endpoint at its word and retry the same mode. It
+                    # sticks for the rest of the process, so the cost is one
+                    # wasted request per run, not one per episode.
+                    self.max_tokens = cap
+                    attempted.pop()
+                    continue
                 if mode is not None and _is_bad_request(exc):
                     # Endpoint rejects this mode outright — step down and retry.
                     last_error = f"{mode} rejected"
@@ -172,6 +182,35 @@ class OpenAICompatibleProvider(Provider):
                 f"{self.model} did not return an object with {wanted} "
                 f"(tried {', '.join(attempted)}): {last_error or 'wrong shape'}"
             )
+
+
+# Plenty of open-weight models are served with an output cap well below our
+# default, and the endpoint says so in a 400. That is NOT a JSON-mode problem:
+# without this the mode walk burns three more requests, steps all the way down
+# to plain prompting, and then reports "did not return an object" — which sends
+# you looking at the prompt for a fault that is one number in a request body.
+#
+# Measured 2026-08-06, Featherless serving NVIDIA-Nemotron-3-Super-120B:
+#   "The requested 'max_tokens' of 8000 exceeds the maximum allowed for this
+#    model, which is 4096."
+_TOKEN_CAP = re.compile(
+    r"max_tokens[^.]*?(?:maximum allowed[^.]*?is|must be (?:less than or equal to|<=|at most))"
+    r"\s*'?(\d+)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _token_cap(exc: Exception) -> int | None:
+    """The output cap an endpoint just told us about, if it did."""
+    match = _TOKEN_CAP.search(" ".join(str(exc).split()))
+    if not match:
+        return None
+    try:
+        cap = int(match.group(1))
+    except ValueError:
+        return None
+    # A "cap" of zero or a whole context window is a message we misread.
+    return cap if 0 < cap < 1_000_000 else None
 
 
 def _is_bad_request(exc: Exception) -> bool:

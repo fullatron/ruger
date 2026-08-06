@@ -299,18 +299,30 @@ def verify_quote(quote: str, transcript: str, *, min_words: int | None = None,
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
-# A pronoun is not a person. The prompt says so; this is the backstop, because
-# a card owned by "you" or "the team" is one nobody ever picks up — and it also
-# poisons dedup, which groups still-open work by owner. Only checked for
-# `theirs`: `mine` is folded to `me` a few lines down and cannot be ambiguous.
+# A pronoun is not a person, and there are two kinds of it.
 #
-# English-only on purpose. Guessing at the pronoun set of every language would
-# be worse than the problem: a real name wrongly matched here is a commitment
-# silently thrown away.
+# SECOND_PERSON resolves rather than drops. Every note Ruger reads is the user's
+# own recording or their own dictation, so a line addressed to "you" is
+# addressed to *them* — which is what the prompt says, and this makes the code
+# agree with it. Measured 2026-08-06: on "I want you to write the comparison
+# blogs", gemma answers `me`/`mine`, MiniMax M2.7 answers `you`/`theirs` on
+# every run. Dropping would have thrown away two real tasks over a pronoun.
+# It also matches the established default (D3, and the capture prompt): when
+# the actor is ambiguous, file it as MINE. A task wrongly filed as theirs is
+# one you stop expecting to do.
+SECOND_PERSON = {"you", "u", "yourself", "yourselves"}
+
+# NOT_A_NAME drops, because nobody at all was named. A card owned by "the team"
+# is one nobody ever picks up, and it poisons dedup, which groups still-open
+# work by owner.
+#
+# Both are English-only on purpose. Guessing at the pronoun set of every
+# language would be worse than the problem: a real name wrongly matched here is
+# a commitment silently thrown away.
 NOT_A_NAME = {
-    "you", "u", "yourself", "we", "us", "our team", "they", "them", "someone",
-    "somebody", "someone else", "anyone", "everyone", "everybody", "team",
-    "the team", "all", "both", "unknown", "unassigned", "tbd", "n a", "none",
+    "we", "us", "our team", "they", "them", "someone", "somebody",
+    "someone else", "anyone", "everyone", "everybody", "team", "the team",
+    "all", "both", "unknown", "unassigned", "tbd", "n a", "none",
 }
 
 
@@ -351,10 +363,14 @@ def validate(raw: dict, episode: dict) -> tuple[list[dict], list[dict]]:
             record["_reason"] = "no owner named"
             dropped.append(record)
             continue
-        if direction == "theirs" and dedup.normalise_owner(owner, direction) in NOT_A_NAME:
-            record["_reason"] = f"owner {owner!r} is a pronoun, not a person"
-            dropped.append(record)
-            continue
+        if direction == "theirs":
+            pronoun = dedup.normalise_owner(owner, direction)
+            if pronoun in SECOND_PERSON:
+                direction, owner = "mine", "me"
+            elif pronoun in NOT_A_NAME:
+                record["_reason"] = f"owner {owner!r} is a pronoun, not a person"
+                dropped.append(record)
+                continue
 
         ok, how = verify_quote(record.get("quote", ""), transcript,
                                min_words=min_words, min_chars=min_chars,

@@ -240,7 +240,17 @@ def main() -> None:
             "owner": owner, "due_date": None, "speaker": None,
             "quote": "I want you to write the comparison blogs by Friday."}]}, episode)
 
-    for pronoun in ("you", "You", "we", "they", "someone", "the team", "TBD"):
+    print("    second person resolves to the user, because these notes are theirs:")
+    for pronoun in ("you", "You", "yourself"):
+        kept, _ = owned(pronoun)
+        # Dropping would throw away a real task over a pronoun: every note Ruger
+        # reads is the user's own recording, so "you" means them. MiniMax M2.7
+        # answers `you`/`theirs` on this sentence every single time.
+        check(f"{pronoun!r} is the user", (len(kept), kept[0]["owner"], kept[0]["direction"]),
+              (1, "me", "mine"))
+
+    print("    and one that names nobody at all is refused:")
+    for pronoun in ("we", "they", "someone", "the team", "TBD"):
         kept, drops = owned(pronoun)
         check(f"{pronoun!r} refused",
               (len(kept), "pronoun, not a person" in drops[0]["_reason"]), (0, True))

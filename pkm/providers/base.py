@@ -125,6 +125,14 @@ def parse_json_object(text: str, list_key: str = "commitments") -> dict:
                         return value
             return parsed
         if isinstance(parsed, list):
+            # An array holding the answer rather than being it. MiniMax M2.7
+            # returns `[{"commitments": [...]}]` on Featherless (measured
+            # 2026-08-06), and wrapping that again gives
+            # `{"commitments": [{"commitments": [...]}]}` — which the validator
+            # correctly refuses, so every task is lost to a stray bracket.
+            # Unwrapping is packaging repair: no field is renamed or invented.
+            if len(parsed) == 1 and isinstance(parsed[0], dict) and list_key in parsed[0]:
+                return parsed[0]
             # A bare array is a packaging error, not a content error.
             return {list_key: parsed}
 
