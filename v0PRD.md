@@ -721,6 +721,35 @@ because SQLite reuses a freed rowid. It reports the ids the insert returned now.
 
 ---
 
+## 17. Notes that were never your work
+
+Reported from a real recording: feedback dictated about somebody else's product,
+which Wispr summarised into next steps, which Ruger read as seven commitments and
+filed as **mine**. Nothing in the pipeline was wrong — the speaker really did say
+"fix the pointer cursor" — but none of it was the speaker's job.
+
+**D30 — clear a note's tasks in one action, and do all three parts of it.** A
+bulk delete that only deletes rows solves nothing:
+
+- the rows go, and the log records each one with the note it came from;
+- **their Notion pages are archived**, because seven cards left behind is exactly
+  the hand-deleting the button exists to avoid;
+- the note is **muted**. Wispr rewrites a transcript every time you press
+  summarise, and a changed transcript re-extracts — which would hand back all
+  seven. Muting is the only part that makes the deletion stick.
+
+The note itself is kept. The recording is still worth having, and removing it
+would take the transcript and the evidence with it. "Refresh tasks" un-mutes,
+because asking for a note to be read is asking for it to be read.
+
+*The deeper cause is a prompt question, not a code one.* A meeting where someone
+lists improvements to a product is indistinguishable, sentence by sentence, from
+a meeting where someone takes them on. The signal is whose product it is and
+whether anyone accepted the work — the same shape as the Slack problem in §15,
+and worth solving once for both.
+
+---
+
 ## Build order
 
 | | | |
@@ -738,7 +767,8 @@ because SQLite reuses a freed rowid. It reports the ids the insert returned now.
 | **Step 11** | Deleting means deleting (§14) | **done** |
 | **Step 12** | Breaking a task into steps automatically (§13) | not started |
 | **Step 13** | Languages that are not English (§16) | **done** |
-| **Step 14** | Slack — under discussion | not started |
+| **Step 14** | Clearing a note's tasks in one action (§17) | **done** |
+| **Step 15** | Slack — under discussion | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

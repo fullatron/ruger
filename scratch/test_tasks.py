@@ -251,6 +251,73 @@ def main() -> None:
         check("returns a field", "api_key" in body, True)
         check("GET /api/config still hides it", "api_key" in request("GET", "/api/config")[1], False)
 
+        print("\nDELETE /api/notes/{id}/tasks — a note that was never my work (§17):")
+        # The case: feedback on somebody else's product reads exactly like a list
+        # of things to do, and one recording put seven of them on the board.
+        before = len(request("GET", "/api/tasks")[1]["tasks"])
+        check("there are tasks to clear", before > 0, True)
+
+        archived: list[str] = []
+        from pkm.connectors import notion as notion_mod
+
+        original_request = notion_mod._request
+
+        def fake_request(method, path, payload=None, **kw):
+            if method == "PATCH" and payload == {"archived": True}:
+                archived.append(path)
+                return {}
+            raise AssertionError(f"unexpected call {method} {path}")
+
+        # Pretend the rows reached Notion, so the archive path is exercised.
+        with closing(db.connect()) as conn:
+            with db.transaction(conn):
+                for row in db.commitments_for_episode(conn, note_id):
+                    db.mark_pushed(conn, int(row["id"]), f"page-{row['id']}",
+                                   f"https://notion.so/{row['id']}")
+
+        notion_mod._request = fake_request
+        try:
+            status, r = request("DELETE", f"/api/notes/{note_id}/tasks")
+        finally:
+            notion_mod._request = original_request
+
+        check("status", status, 200)
+        check("every task went", r["deleted"], before)
+        check("and every Notion page was archived", r["archived"], before)
+        check("each archive call named a page", len(archived), before)
+        check("and every one was a page path",
+              all(p.startswith("/pages/page-") for p in archived), True)
+        check("the board is empty", len(request("GET", "/api/tasks")[1]["tasks"]), 0)
+
+        print("\n  the note is kept, and muted so it is not read again:")
+        check("the note survives", r["detail"]["note"]["title"] is not None, True)
+        check("its transcript survives",
+              "audit" in r["detail"]["note"]["transcript"], True)
+        check("it is muted", r["muted"], True)
+        with closing(db.connect()) as conn:
+            check("and muted in the database",
+                  db.get_commitment(conn, 1) is None
+                  and conn.execute("SELECT muted FROM episodes WHERE id = ?",
+                                   (note_id,)).fetchone()["muted"], 1)
+            check("so a changed transcript does not hand them back",
+                  [int(e["id"]) for e in db.episodes_needing_extraction(conn)], [])
+
+        print("\n  and the log records every one:")
+        # Only the bulk ones: an earlier section of this file deletes a task too.
+        events = [e for e in request("GET", "/api/events")[1]["events"]
+                  if e["action"] == "deleted" and "not my work" in (e["detail"] or "")]
+        check("one event per task", len(events), before)
+        check("naming the note it came from",
+              "cleared from" in events[0]["detail"], True)
+
+        print("\n  refreshing un-mutes it, because you asked for it to be read:")
+        ROUND["n"] = 0
+        request("POST", f"/api/notes/{note_id}/reextract")
+        with closing(db.connect()) as conn:
+            check("no longer muted",
+                  conn.execute("SELECT muted FROM episodes WHERE id = ?",
+                               (note_id,)).fetchone()["muted"], 0)
+
         print("\npage wiring:")
         html = request("GET", "/")[1]
         for needle in ("data-source=", "src-refresh", "src-add", "provider-pick",

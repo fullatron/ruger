@@ -189,7 +189,7 @@ def _episode_from_paths(conn: sqlite3.Connection, episode_id: int, wanted: set[s
 def list_notes(conn: sqlite3.Connection) -> list[dict]:
     """Everything stored, with what each meeting produced."""
     rows = conn.execute(
-        """SELECT e.id, e.title, e.started_at, e.source, e.extracted_at,
+        """SELECT e.id, e.title, e.started_at, e.source, e.extracted_at, e.muted,
                   e.extraction_model, LENGTH(e.transcript) AS chars,
                   (SELECT COUNT(*) FROM commitments c WHERE c.episode_id = e.id) AS commitments,
                   (SELECT COUNT(*) FROM extraction_drops d WHERE d.episode_id = e.id) AS drops,
@@ -292,6 +292,67 @@ def add_task(conn: sqlite3.Connection, episode_id: int, payload: dict) -> int:
             "status": status,
             "occurred_at": row["started_at"],
         })
+
+
+def delete_tasks(conn: sqlite3.Connection, episode_id: int, *,
+                 mute: bool = True, archive: bool = True) -> dict:
+    """Drop every task a note produced, keeping the note (§17).
+
+    For the case this exists to serve: a note that was never about your work.
+    Feedback on somebody else's product reads exactly like a list of things to
+    do, and one recording can put a dozen of them on your board.
+
+    Three things have to happen together or it does not solve anything:
+
+      - the rows go, and the log records each one;
+      - **their Notion pages are archived**, or you are left deleting a dozen
+        cards by hand, which is the problem you were trying to escape;
+      - the note is **muted**, or the next transcript rewrite re-extracts the lot.
+        Wispr rewrites one every time you press summarise.
+
+    The note itself is kept: the recording is still worth having, and deleting it
+    would take the transcript and the evidence with it.
+    """
+    row = conn.execute(
+        "SELECT id, title FROM episodes WHERE id = ?", (episode_id,)
+    ).fetchone()
+    if row is None:
+        raise NoteError("no such note")
+
+    doomed = db.commitments_for_episode(conn, episode_id)
+    result = {"note": row["title"], "deleted": 0, "archived": 0,
+              "tasks": [r["task"] for r in doomed], "muted": bool(mute),
+              "errors": []}
+
+    for task in doomed:
+        with db.transaction(conn):
+            db.delete_commitment(conn, int(task["id"]))
+            db.log_event(conn, "deleted", task["task"],
+                         commitment_id=int(task["id"]),
+                         detail=f"not my work — cleared from “{row['title']}”",
+                         external_url=task["external_url"])
+        result["deleted"] += 1
+
+    if mute:
+        with db.transaction(conn):
+            db.set_muted(conn, episode_id, True)
+
+    if archive:
+        from .connectors import notion
+
+        for task in doomed:
+            if not task["external_id"]:
+                continue
+            try:
+                notion._request("PATCH", f"/pages/{task['external_id']}",
+                                {"archived": True})
+                result["archived"] += 1
+            except notion.NotionError as exc:
+                # One page refusing must not strand the rest, and the row is
+                # already gone here: `pull --prune` will catch the remainder.
+                result["errors"].append(f"{task['task'][:40]}: {exc}")
+
+    return result
 
 
 def delete_note(conn: sqlite3.Connection, episode_id: int) -> dict:

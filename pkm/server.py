@@ -14,6 +14,7 @@
     GET    /api/notes/{id}    one source: transcript, its tasks, its drops
     POST   /api/notes/{id}/reextract   run extraction again and MERGE
     DELETE /api/notes/{id}    forget a note (file moves to ~/.pkm/trash)
+    DELETE /api/notes/{id}/tasks  drop every task it produced, keep the note
 
     GET    /api/version       API version, so a stale server can be detected
     GET    /api/config        current provider settings (key masked)
@@ -50,13 +51,14 @@ BOARD_HTML = Path(__file__).resolve().parent / "board.html"
 _TASK_PATH = re.compile(r"^/api/tasks/(\d+)$")
 _NOTE_PATH = re.compile(r"^/api/notes/(\d+)$")
 _NOTE_REEXTRACT = re.compile(r"^/api/notes/(\d+)/reextract$")
+_NOTE_TASKS = re.compile(r"^/api/notes/(\d+)/tasks$")
 MAX_BODY = 8 * 1024 * 1024      # uploads are inlined as JSON
 
 # board.html is read from disk on every request, so a long-running server
 # serves the NEWEST page while still routing on the code it started with. The
 # page then calls endpoints that do not exist yet and fails in confusing ways.
 # Bump this whenever routes change; the page compares it and says so plainly.
-API_VERSION = "0.4"
+API_VERSION = "0.5"
 GUARD_HEADER = "X-Ruger"
 
 
@@ -234,6 +236,15 @@ class Handler(BaseHTTPRequestHandler):
                                     if row["external_id"] else ""),
                                  external_url=row["external_url"])
             return self._json(200, {"deleted": task_id})
+
+        match = _NOTE_TASKS.match(path)
+        if match:
+            episode_id = int(match.group(1))
+            print(f"  clearing every task from note {episode_id}...")
+            with closing(db.connect()) as conn:
+                result = notes.delete_tasks(conn, episode_id)
+                result["detail"] = notes.note_detail(conn, episode_id)
+            return self._json(200, result)
 
         match = _NOTE_PATH.match(path)
         if not match:

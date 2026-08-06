@@ -945,7 +945,7 @@ const TODAY = (() => {
   return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
     .toISOString().slice(0, 10);
 })();
-const NEEDS_API = "0.4";   // must match server.py's API_VERSION
+const NEEDS_API = "0.5";   // must match server.py's API_VERSION
 
 const PAGES = {
   board: {
@@ -1343,9 +1343,15 @@ function sourceHTML() {
     <div class="row">
       <button class="btn primary" id="src-refresh" data-id="${n.id}">Refresh tasks</button>
       <button class="btn outline" id="src-add" data-id="${n.id}">Add a task</button>
+      ${tasks.length ? `<button class="btn danger outline" id="src-clear"
+         data-id="${n.id}">Not my tasks (${tasks.length})</button>` : ""}
       <button class="btn danger" data-del="${n.id}">Remove note</button>
       <span class="muted" id="src-status"></span>
     </div>
+    ${n.muted ? `<div class="callout"><span class="ico">🔇</span><div>
+       This note is muted. Its tasks were cleared as not yours, so Ruger will not
+       read it again even if the transcript changes. Refresh tasks un-mutes it.
+       </div></div>` : ""}
     <p class="desc">Refreshing runs the model over this note again. Tasks you edited
        keep their wording, tasks you added by hand are left alone, and anything new
        is added.</p>
@@ -1694,6 +1700,38 @@ async function refreshSource(id, btn) {
   }
 }
 
+/** Drop every task a note produced, keeping the note (§17).
+ *  For a recording that was never about your work: feedback on somebody else's
+ *  product reads exactly like a list of things to do. */
+async function clearTasks(id) {
+  const list = (SOURCE?.tasks || []).map((t) => t.task);
+  const pushed = (SOURCE?.tasks || []).filter((t) => t.external_url).length;
+  const preview = list.slice(0, 6).map((t) => `  · ${t}`).join("\n")
+    + (list.length > 6 ? `\n  · and ${list.length - 6} more` : "");
+  if (!confirm(
+    `Delete all ${list.length} tasks from this note?\n\n${preview}\n\n`
+    + (pushed ? `${pushed} will be archived in Notion too.\n` : "")
+    + "The note itself is kept, and Ruger stops reading it.")) return;
+
+  const status = $("#src-status");
+  if (status) status.innerHTML = `<span class="spin">◐</span> clearing…`;
+  try {
+    const r = await api("DELETE", `/api/notes/${id}/tasks`);
+    SOURCE = r.detail;
+    await Promise.all([loadTasks(), loadEvents(), loadNotes()]);
+    render();
+    const bits = [`${r.deleted} task${r.deleted === 1 ? "" : "s"} deleted`];
+    if (r.archived) bits.push(`${r.archived} archived in Notion`);
+    if (r.muted) bits.push("note muted");
+    toast(bits.join(" · "));
+    (r.errors || []).forEach((err) => toast(err, 7000));
+  } catch (err) {
+    toast(`Could not clear: ${err.message}`, 7000);
+  } finally {
+    if ($("#src-status")) $("#src-status").textContent = "";
+  }
+}
+
 async function submitTask(episodeId) {
   const dir = $("#t-dir").querySelector('[aria-pressed="true"]').dataset.dir;
   const payload = {
@@ -1842,6 +1880,8 @@ document.addEventListener("click", async (e) => {
 
   if (e.target.closest("#src-refresh"))
     return refreshSource(e.target.closest("#src-refresh").dataset.id, e.target.closest("#src-refresh"));
+  if (e.target.closest("#src-clear"))
+    return clearTasks(e.target.closest("#src-clear").dataset.id);
   if (e.target.closest("#src-add")) {
     $("#src-form").innerHTML = addTaskFormHTML(e.target.closest("#src-add").dataset.id);
     $("#t-task")?.focus();
@@ -2048,8 +2088,10 @@ if (params.get("theme") === "light") {
 }
 
 const wanted = params.get("view");
+const wantedNote = params.get("note");
 
 Promise.all([loadTasks(), loadEvents()]).then(() => {
+  if (wantedNote) return goto("source", Number(wantedNote));
   if (wanted && wanted !== "board" && PAGES[wanted]) return goto(wanted);
   render();
 }).catch((err) => {

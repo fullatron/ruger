@@ -123,6 +123,12 @@ record, not a second task list, so there is nothing to drag or tick — that is
 Notion's job. **Sources** shows each note's transcript, the tasks read out of it,
 and everything the quote check dropped.
 
+**"Not my tasks"** is there for a recording that was never about your work —
+feedback on somebody else's product summarises into a list of next steps and
+lands as a dozen commitments of yours. One click deletes them all, archives their
+Notion cards, and stops Ruger reading that note again. The note is kept; refreshing
+it un-mutes it.
+
 ## Commands
 
 ```bash
@@ -222,7 +228,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **881 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **896 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash

@@ -142,6 +142,11 @@ def reextract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> 
     episode_id = int(episode["id"])
     label = episode["title"] or f"episode {episode_id}"
 
+    # Asking for a refresh is asking for this note to be read, which un-mutes it
+    # (§17). Otherwise "Refresh tasks" on a muted note would appear to do nothing.
+    with db.transaction(conn):
+        db.set_muted(conn, episode_id, False)
+
     try:
         outcome = run(episode)
     except Exception as exc:

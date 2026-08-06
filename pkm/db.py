@@ -52,6 +52,11 @@ _ADDED_COLUMNS = {
         ("external_url", "TEXT"),
         ("pushed_at", "TEXT"),
     ],
+    "episodes": [
+        # §17: a note whose tasks were never yours. Muting it stops re-extraction
+        # bringing them back when Wispr rewrites the transcript on summarise.
+        ("muted", "INTEGER NOT NULL DEFAULT 0"),
+    ],
 }
 
 
@@ -234,12 +239,23 @@ def upsert_episode(conn: sqlite3.Connection, ep: dict, event_ids: list[int]) -> 
 
 
 def episodes_needing_extraction(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    """Never extracted, or the transcript changed since we last did."""
+    """Never extracted, or the transcript changed since we last did.
+
+    A muted episode is skipped for good: you already said its tasks were not
+    yours, and a transcript that changes underneath (Wispr rewrites one when you
+    press summarise) would otherwise hand them all back.
+    """
     return conn.execute(
         """SELECT * FROM episodes
-            WHERE extracted_at IS NULL OR extracted_hash IS NOT content_hash
+            WHERE muted = 0
+              AND (extracted_at IS NULL OR extracted_hash IS NOT content_hash)
             ORDER BY started_at""",
     ).fetchall()
+
+
+def set_muted(conn: sqlite3.Connection, episode_id: int, muted: bool = True) -> None:
+    conn.execute("UPDATE episodes SET muted = ? WHERE id = ?",
+                 (1 if muted else 0, episode_id))
 
 
 def mark_extracted(conn: sqlite3.Connection, episode_id: int, model: str) -> None:

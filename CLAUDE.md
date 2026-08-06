@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 881 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 896 assertions.
 
 `scratch/stress.py` is the other kind: hostile input, twelve concurrent writers,
 injected failures, and — with `STRESS_LIVE=1` — a real model and a real Notion.
@@ -611,6 +611,23 @@ D9 makes status one-directional. It is a log now.
 - **`TODAY` in `board.html` is the LOCAL date.** It was `toISOString()`, which is
   UTC, so east of it the page spent the small hours calling yesterday "today" and
   marking due dates overdue early.
+
+## Clearing a note's tasks (§17)
+
+`DELETE /api/notes/{id}/tasks`, `notes.delete_tasks`. For a note that was never
+about your work — dictated feedback on somebody else's product turns into a list
+of commitments that read as yours.
+
+- **It archives the Notion pages too.** Deleting only the local rows leaves the
+  cards behind, which is the hand-deleting the button exists to avoid.
+- **It mutes the episode**, and that is the part that makes it stick: Wispr
+  rewrites a transcript on summarise, a changed transcript re-extracts, and the
+  tasks would all come back. `episodes.muted` is checked by
+  `episodes_needing_extraction`.
+- **`reextract_episode` un-mutes.** Asking for a refresh is asking for the note
+  to be read, so "Refresh tasks" on a muted note must not silently do nothing.
+- **The note is kept.** Deleting it would take the transcript and the evidence
+  with it, and the recording is still worth having.
 
 ## The Notion board
 
