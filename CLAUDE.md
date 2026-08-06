@@ -92,6 +92,10 @@ than about reasoning. Each cost a real fix, both of which help any model:
   rather than being one. The bare-array rule then wrapped it again and every
   task was lost to a stray bracket.
 
+Gemma stays for now. It is the first thing measured that worked rather than a
+considered choice between providers, so trying others is open work — §19 has the
+bar a candidate has to clear and the order to check it in.
+
 ## Tests
 
 No framework — scripts that print PASS/FAIL and exit non-zero. 956 assertions.

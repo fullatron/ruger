@@ -796,6 +796,48 @@ one back.
 
 ---
 
+## 19. Trying other models
+
+`google/gemma-4-31B-it` is what runs today, and it earned that by being the only
+one of three that gave the same answer twice. It is not a considered choice
+between providers — it is the first thing measured that worked. Worth revisiting,
+without urgency: nothing is broken.
+
+The bar is not a benchmark score. Run `scratch/tune_prompt.py --episode 15`
+several times on one candidate and read the output. Three questions, in order:
+
+1. **Does it answer at all, every time?** Nemotron came back empty on one run in
+   four. An extractor that sometimes returns nothing is a board that sometimes
+   loses a meeting, and the tick will not tell you.
+2. **Is the quote per task distinct and specific?** This is the one that is easy
+   to miss, because nothing downstream catches it. Nemotron wrote the best task
+   lines of the three and put the *same* quote under both tasks in every run that
+   answered — twice a generic summary line that evidenced neither. The quote check
+   still passes, because the line really was said. D5 is what fails: a quote
+   shared between two tasks cannot make either one obviously right or obviously
+   wrong at a glance. **Judge a candidate on the quote it picks, not only on the
+   sentence it writes.**
+3. **Is the owner a name, and the same name each run?** MiniMax answered
+   `owner: "you"` every time. A pronoun is not an owner, it poisons dedup, and
+   `extract.NOT_A_NAME` catching it is a backstop, not a pass.
+
+Then the practical floor: **under about 60s per note**, because the timer ticks
+every 300s and a slow model turns a quiet import into an overlapping one. Gemma
+is ~12s; both rejected models ran 32–159s.
+
+Two failures found this way were mechanical rather than about reasoning, and both
+fixes are already in and help any candidate: `max_tokens` is per-model and is
+read back off the error (`_token_cap`), and an answer wrapped in a one-element
+array is unwrapped. Expect the next provider to break something in that class
+rather than to reason badly. `PKM_BASE_URL` plus `PKM_MODEL` is the whole switch;
+`pkm models` lists what an OpenAI-compatible endpoint actually serves.
+
+*Not in scope:* running two models and comparing, a scoring harness, or per-note
+model selection. The comparison worth having is a human reading four runs of one
+real note.
+
+---
+
 ## Build order
 
 | | | |
@@ -816,6 +858,7 @@ one back.
 | **Step 14** | Clearing a note's tasks in one action (§17) | **done** |
 | **Step 15** | The archive (§18) | **done** |
 | **Step 16** | Slack — under discussion | not started |
+| **Step 17** | Try other providers and models against note #15 (§19) | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made
