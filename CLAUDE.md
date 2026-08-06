@@ -518,9 +518,26 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   makes the timer safe, and it is why `run_sync` checks `extracted_at`: Wispr
   rewrites a transcript when you press summarize, and rebuilding those rows would
   drop the Notion page id off every one and duplicate every card on the next push.
+- **That routing decision goes stale, so `extract_episode` re-checks
+  `extracted_at` inside its write transaction.** `run_sync` reads the episode
+  row, *then* spends a minute or more in the model, and the row it decided from
+  is that old. launchd stops the tick overlapping itself, but it does not stop a
+  **capture** overlapping a tick, and both call into extraction on the same
+  inbox. Measured 2026-08-06 on episode 16: a capture ingested a note at
+  17:20:21Z and started extracting; the tick woke at 17:21:14Z, read
+  `extracted_at IS NULL` and aimed at the clearing path; the capture finished
+  first, stored 7 rows and pushed 7 cards; the tick's answer arrived at
+  17:22:39Z and cleared them. Seven page ids dropped, 13 rows re-inserted, 13
+  more cards created, and because **SQLite reuses freed rowids** the ids on the
+  7 orphaned pages now named other people's tasks — so `pull` could write a
+  status onto the wrong row. Whoever commits second merges instead
+  (`sync.merge_outcome`), which is only meaningful because `transaction()` is
+  `BEGIN IMMEDIATE` and serialises the two writers. The pinning test is in
+  `test_tasks.py` and it does the competing write *inside* the model call.
 - launchd will not start a second copy of the label while one is running, so a
   slow tick cannot overlap the next. A tick missed while the machine slept runs
-  once on wake, not as a backlog.
+  once on wake, not as a backlog. **This says nothing about a capture,** which is
+  a separate process on no timer at all.
 - **The heartbeat is the tick log's mtime, and nothing writes one on purpose.**
   The tick prints a dated header on every wake, including the idle ones that
   skip Notion, so `pkm status` reads liveness off that file's mtime. A heartbeat

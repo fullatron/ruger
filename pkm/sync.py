@@ -66,6 +66,13 @@ def apply_extraction(
     return result
 
 
+def _already_extracted(conn: sqlite3.Connection, episode_id: int) -> bool:
+    row = conn.execute(
+        "SELECT extracted_at FROM episodes WHERE id = ?", (episode_id,)
+    ).fetchone()
+    return bool(row and row["extracted_at"])
+
+
 def extract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> dict:
     """Extract one episode and store the result.
 
@@ -83,6 +90,28 @@ def extract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> di
                 "dropped": 0, "drops": [], "commitment_ids": []}
 
     with db.transaction(conn):
+        # Re-read `extracted_at` here, inside the write transaction, and not
+        # from the row we were handed. That row was read before the model call,
+        # which takes a minute or more, and in that minute another process can
+        # extract this same episode and push its rows to Notion — a capture and
+        # a tick both reaching one note is not exotic, it is what happens when
+        # you dictate something while the timer is due.
+        #
+        # Clearing then would delete rows that already carry a Notion page id,
+        # re-insert them with fresh ids, and the next push would create a second
+        # card for every one. Measured 2026-08-06 on episode 16: seven cards
+        # pushed by the capture, thirteen rows rebuilt by the tick ninety
+        # seconds later, six duplicate pages on the board and SQLite reusing the
+        # freed rowids so the ids on the orphaned pages pointed at other tasks.
+        #
+        # So whoever commits second merges instead. `transaction()` is
+        # BEGIN IMMEDIATE, which serialises the two writers and is what makes
+        # this check meaningful rather than a smaller window on the same race.
+        if _already_extracted(conn, int(episode["id"])):
+            stats = merge_outcome(conn, episode, outcome)
+            stats["raced"] = True
+            return stats
+
         applied = apply_extraction(
             conn, episode, outcome.get("kept", []), outcome.get("dropped", [])
         )
@@ -93,6 +122,7 @@ def extract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> di
         )
 
     return {
+        "raced": False,
         "error": None,
         "created": applied["created"],
         "merged": applied["merged"],
@@ -152,6 +182,21 @@ def reextract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> 
     except Exception as exc:
         return {"error": f"{label}: {exc}"}
 
+    with db.transaction(conn):
+        return merge_outcome(conn, episode, outcome)
+
+
+def merge_outcome(conn: sqlite3.Connection, episode, outcome) -> dict:
+    """Merge an already-computed extraction into an episode's existing rows.
+
+    Split out of `reextract_episode` so the same merge can be reached from
+    `extract_episode` when it loses a race, which is the one case where an
+    extraction that *started* as a first-time extraction must not clear.
+
+    **Assumes a write transaction is already open**, because both callers need
+    the check that routed them here and the merge itself to be one atomic step.
+    """
+    episode_id = int(episode["id"])
     kept = outcome.get("kept", [])
     dropped = outcome.get("dropped", [])
     occurred_at = episode["started_at"]
@@ -163,70 +208,69 @@ def reextract_episode(conn: sqlite3.Connection, episode, *, extract_fn=None) -> 
                         "quote": d.get("quote")} for d in dropped],
              "commitment_ids": [], "usage": outcome.get("usage")}
 
-    with db.transaction(conn):
-        mine = [r for r in db.commitments_for_episode(conn, episode_id)
-                if r["origin"] == "extracted"]
-        unclaimed = {int(r["id"]): r for r in mine}
+    mine = [r for r in db.commitments_for_episode(conn, episode_id)
+            if r["origin"] == "extracted"]
+    unclaimed = {int(r["id"]): r for r in mine}
 
-        for item in kept:
-            # Identity within one meeting is the QUOTE, not the task text. The
-            # quote is a verbatim line from the transcript, so it survives any
-            # rewording — including a rename by a human, which would otherwise
-            # drop below the dedup threshold and produce a duplicate.
-            match = next(
-                (r for r in unclaimed.values() if _same_evidence(r["quote"], item["quote"])),
-                None,
-            )
-            if match is None:
-                candidates = [r for r in unclaimed.values()
-                              if r["owner_norm"] == item["owner_norm"]]
-                match, _ = dedup.find_match(item, candidates)
+    for item in kept:
+        # Identity within one meeting is the QUOTE, not the task text. The
+        # quote is a verbatim line from the transcript, so it survives any
+        # rewording — including a rename by a human, which would otherwise
+        # drop below the dedup threshold and produce a duplicate.
+        match = next(
+            (r for r in unclaimed.values() if _same_evidence(r["quote"], item["quote"])),
+            None,
+        )
+        if match is None:
+            candidates = [r for r in unclaimed.values()
+                          if r["owner_norm"] == item["owner_norm"]]
+            match, _ = dedup.find_match(item, candidates)
 
-            if match is not None:
-                row = unclaimed.pop(int(match["id"]))
-                if row["edited"]:
-                    # Keep the human's wording; refresh only the evidence.
-                    db.update_commitment(conn, int(row["id"]),
-                                         {"quote": item["quote"], "speaker": item["speaker"]},
-                                         mark_edited=False)
-                    stats["protected"] += 1
-                else:
-                    db.update_commitment(conn, int(row["id"]), {
-                        "task": item["task"], "direction": item["direction"],
-                        "owner": item["owner"],
-                        "due_date": item["due_date"] or row["due_date"],
-                        "quote": item["quote"], "speaker": item["speaker"],
-                    }, mark_edited=False)
-                    stats["updated"] += 1
-                continue
+        if match is not None:
+            row = unclaimed.pop(int(match["id"]))
+            if row["edited"]:
+                # Keep the human's wording; refresh only the evidence.
+                db.update_commitment(conn, int(row["id"]),
+                                     {"quote": item["quote"], "speaker": item["speaker"]},
+                                     mark_edited=False)
+                stats["protected"] += 1
+            else:
+                db.update_commitment(conn, int(row["id"]), {
+                    "task": item["task"], "direction": item["direction"],
+                    "owner": item["owner"],
+                    "due_date": item["due_date"] or row["due_date"],
+                    "quote": item["quote"], "speaker": item["speaker"],
+                }, mark_edited=False)
+                stats["updated"] += 1
+            continue
 
-            # Not from this meeting: it may still be a restatement of an open
-            # promise made elsewhere (D4).
-            elsewhere = [r for r in db.open_commitments_for_owner(conn, item["owner_norm"])
-                         if int(r["episode_id"]) != episode_id]
-            match, _score, _how = similar.resolve(item, elsewhere)
-            if match is not None:
-                db.add_mention(conn, int(match["id"]), episode_id, occurred_at,
-                               item["quote"], item["speaker"])
-                db.touch_commitment_due(conn, int(match["id"]), item["due_date"])
-                stats["merged"] += 1
-                continue
+        # Not from this meeting: it may still be a restatement of an open
+        # promise made elsewhere (D4).
+        elsewhere = [r for r in db.open_commitments_for_owner(conn, item["owner_norm"])
+                     if int(r["episode_id"]) != episode_id]
+        match, _score, _how = similar.resolve(item, elsewhere)
+        if match is not None:
+            db.add_mention(conn, int(match["id"]), episode_id, occurred_at,
+                           item["quote"], item["speaker"])
+            db.touch_commitment_due(conn, int(match["id"]), item["due_date"])
+            stats["merged"] += 1
+            continue
 
-            new_id = db.insert_commitment(conn, {
-                **item, "episode_id": episode_id, "event_id": event_id,
-                "occurred_at": occurred_at,
-            })
-            stats["created"] += 1
-            stats["commitment_ids"].append(new_id)
+        new_id = db.insert_commitment(conn, {
+            **item, "episode_id": episode_id, "event_id": event_id,
+            "occurred_at": occurred_at,
+        })
+        stats["created"] += 1
+        stats["commitment_ids"].append(new_id)
 
-        stats["unmatched"] = len(unclaimed)
+    stats["unmatched"] = len(unclaimed)
 
-        conn.execute("DELETE FROM extraction_drops WHERE episode_id = ?", (episode_id,))
-        for item in dropped:
-            db.record_drop(conn, episode_id, item.get("_reason", "unknown"), item)
+    conn.execute("DELETE FROM extraction_drops WHERE episode_id = ?", (episode_id,))
+    for item in dropped:
+        db.record_drop(conn, episode_id, item.get("_reason", "unknown"), item)
 
-        db.mark_extracted(conn, episode_id,
-                          (outcome.get("usage") or {}).get("model") or config.MODEL)
+    db.mark_extracted(conn, episode_id,
+                      (outcome.get("usage") or {}).get("model") or config.MODEL)
 
     return stats
 
@@ -356,7 +400,10 @@ def run_sync(conn: sqlite3.Connection, *, extract_fn=None, inbox_path=None, verb
                 print(f"  {outcome['error']}")
             continue
 
-        stats["extracted" if first_time else "refreshed"] += 1
+        # `raced` means it began as a first-time extraction and finished as a
+        # merge, because another process got there during the model call. Count
+        # it as what it did, not as what it set out to do.
+        stats["extracted" if first_time and not outcome.get("raced") else "refreshed"] += 1
         for key in ("created", "updated", "merged", "protected", "unmatched", "dropped"):
             stats[key] += outcome.get(key, 0)
         if outcome.get("usage"):

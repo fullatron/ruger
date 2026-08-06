@@ -330,6 +330,116 @@ def main() -> None:
         for gone in ('data-check="', 'class="drop"', 'draggable="true"',
                      'id="pk-due"', 'data-group='):
             check(f"page no longer has {gone}", gone in html, False)
+        print("\na capture and a tick reaching one note do not duplicate it:")
+        # The real incident, 2026-08-06. A capture ingested a note and started
+        # extracting; the tick woke mid-call, read `extracted_at IS NULL` and so
+        # aimed at the clearing path; the capture then finished, stored 7 rows
+        # and pushed them to Notion; the tick's own call returned 90s later and
+        # cleared those 7 rows, dropping the page id off every one. The next push
+        # made a second card for each. SQLite reused the freed rowids, so the
+        # ids on the orphaned pages then pointed at other people's tasks.
+        #
+        # The competing write is done INSIDE the model call, which is exactly
+        # where it happened: the routing decision is older than the answer.
+        race_note = """---
+title: Positioning sync
+date: 2026-08-04
+id: race1
+---
+
+Alex: I'll discuss wealth messaging with Rahul.
+Alex: I'll discuss aviation messaging with Jeromy.
+"""
+        (inbox / "race1.md").write_text(race_note, encoding="utf-8")
+        with closing(db.connect()) as conn:
+            from pkm import episodes as _episodes
+            _episodes.ingest_inbox(conn, inbox)
+            ep = next(e for e in db.episodes_needing_extraction(conn)
+                      if e["title"] == "Positioning sync")
+            check("it starts unextracted", ep["extracted_at"], None)
+
+            winner = [{"task": "Discuss wealth messaging with Rahul",
+                       "direction": "mine", "owner": "me", "due_date": None,
+                       "quote": "I'll discuss wealth messaging with Rahul.",
+                       "speaker": "Alex"}]
+            loser = winner + [{"task": "Discuss aviation messaging with Jeromy",
+                               "direction": "mine", "owner": "me", "due_date": None,
+                               "quote": "I'll discuss aviation messaging with Jeromy.",
+                               "speaker": "Alex"}]
+
+            won = {}
+
+            def slow_extract(episode):
+                """The other process wins while this one is still 'calling'."""
+                other = db.connect()
+                try:
+                    kept, dropped = extract.validate({"commitments": winner}, episode)
+                    sync.extract_episode(other, episode,
+                                         extract_fn=lambda e: {"kept": kept,
+                                                               "dropped": dropped,
+                                                               "usage": {"model": "fake"}})
+                    # …and pushes what it stored, so these rows now have cards.
+                    with db.transaction(other):
+                        for r in db.commitments_for_episode(other, int(episode["id"])):
+                            db.mark_pushed(other, int(r["id"]), f"page-{r['id']}",
+                                           f"https://notion.so/page-{r['id']}")
+                    won.update({int(r["id"]): r["external_id"] for r in
+                                db.commitments_for_episode(other, int(episode["id"]))})
+                finally:
+                    other.close()
+                kept, dropped = extract.validate({"commitments": loser}, episode)
+                return {"kept": kept, "dropped": dropped, "usage": {"model": "fake"}}
+
+            before = {int(r["id"]): r["external_id"]
+                      for r in db.commitments_for_episode(conn, int(ep["id"]))}
+            check("nothing stored yet", before, {})
+
+            outcome = sync.extract_episode(conn, ep, extract_fn=slow_extract)
+            check("it noticed it lost the race", outcome["raced"], True)
+
+            rows = db.commitments_for_episode(conn, int(ep["id"]))
+            check("both tasks are on the board", len(rows), 2)
+            check("the other process had stored and pushed one", len(won), 1)
+            # The invariant that was violated: the winner's rows come through
+            # with the same ids AND the same page ids. Either one changing is a
+            # duplicate card on the next push.
+            check("its row survives untouched, id and page id together",
+                  {int(r["id"]): r["external_id"]
+                   for r in rows if r["external_id"]}, won)
+            check("the one it did not have was added, not duplicated",
+                  sorted(r["task"] for r in rows),
+                  ["Discuss aviation messaging with Jeromy",
+                   "Discuss wealth messaging with Rahul"])
+
+        print("\n  and an uncontested first extraction still takes the clearing path:")
+        with closing(db.connect()) as conn:
+            # Deliberately different work from the note above: identical tasks
+            # would dedup into it as restatements (D4) and create nothing, which
+            # would pass this check for the wrong reason.
+            (inbox / "race2.md").write_text("""---
+title: Positioning solo
+date: 2026-08-04
+id: race2
+---
+
+Alex: I'll rewrite the pricing page intro.
+""", encoding="utf-8")
+            from pkm import episodes as _episodes
+            _episodes.ingest_inbox(conn, inbox)
+            ep2 = next(e for e in db.episodes_needing_extraction(conn)
+                       if e["title"] == "Positioning solo")
+            solo = [{"task": "Rewrite the pricing page intro", "direction": "mine",
+                     "owner": "me", "due_date": None,
+                     "quote": "I'll rewrite the pricing page intro.", "speaker": "Alex"}]
+
+            def solo_extract(e):
+                kept, dropped = extract.validate({"commitments": solo}, e)
+                return {"kept": kept, "dropped": dropped, "usage": {"model": "fake"}}
+
+            out2 = sync.extract_episode(conn, ep2, extract_fn=solo_extract)
+            check("no race, so no merge", out2["raced"], False)
+            check("and it stored the task", out2["created"], 1)
+
     finally:
         sync.reextract_episode = original
         httpd.shutdown()
