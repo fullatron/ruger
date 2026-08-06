@@ -714,8 +714,17 @@ of commitments that read as yours.
 
 ## The archive (§18)
 
-A card that has been Done for three days moves to an **Archive** option on the
+A card that has been Done long enough moves to an **Archive** option on the
 Notion Status column. `notion.sweep`, `pkm archive`, stage 5 of the tick.
+
+**The window is `PKM_ARCHIVE_AFTER_DAYS`. The default is 3; this board runs 1.**
+It is **real elapsed time, not calendar days** — `done_at` is a full UTC
+timestamp and the cutoff is `now - timedelta(days=…)`, so at 1 a card finished at
+23:00 is filed at 23:00 tomorrow rather than an hour later at midnight. Rounding
+that to dates is the obvious simplification and it is wrong; `test_notion.py`
+pins the boundary at 23h and 25h. Only `__main__` reads the config value —
+`notion.ARCHIVE_AFTER_DAYS` is a fallback for direct calls, so do not read it as
+the setting.
 
 - **Archive is a Status option, not a fourth local status.** `commitments.status`
   has a `CHECK IN ('todo','doing','done')` and widening a SQLite CHECK means
@@ -726,7 +735,7 @@ Notion Status column. `notion.sweep`, `pkm archive`, stage 5 of the tick.
   counted `unreadable` forever — the feature reporting itself as broken. The
   consequence is that status alone can no longer tell "done" from "filed", which
   is why `read_status_name` exists and why `pull` tracks membership by name.
-- **Dragging a card out of Archive restarts its three days.** `db.clear_archived`
+- **Dragging a card out of Archive restarts the clock.** `db.clear_archived`
   resets `done_at`. Leave it and the next tick re-files the card, so the drag
   undoes itself and the board fights the person using it.
 - **The sweep asks SQLite before it asks Notion.** The candidate query returns

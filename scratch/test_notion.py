@@ -743,6 +743,31 @@ def test_archive(conn):
     check("re-running files nothing twice", stats["archived"], 0)
     check("and costs no HTTP at all", STATE["requests"], [])
 
+    print("\n  the window is real elapsed time, so days=1 means 24 hours:")
+    # Pinned because `days=1` is the setting someone reaches for when they want
+    # "archive it tomorrow", and a refactor that rounded to calendar days would
+    # file a card finished at 23:00 an hour later. 23h stays, 25h goes.
+    def age(hours):
+        with db.transaction(conn):
+            conn.execute("UPDATE commitments SET done_at = ?, archived_at = NULL "
+                         "WHERE id = ?",
+                         ((now - timedelta(hours=hours)).isoformat(timespec="seconds"),
+                          int(fresh["id"])))
+
+    age(23)
+    check("done 23 hours ago is not old enough",
+          notion.sweep(conn, days=1, dry_run=True, now=now)["candidates"], 0)
+    age(25)
+    stats = notion.sweep(conn, days=1, now=now)
+    check("done 25 hours ago is", stats["archived"], 1)
+    check("and it is that card", stats["moved"][0]["id"], int(fresh["id"]))
+    check("the page moved", status_of(STATE["pages"][fresh["external_id"]]), "Archive")
+    # Hand `fresh` back un-archived: the checks below reuse it as the one card a
+    # sweep should still be considering.
+    age(23)
+    STATE["pages"][fresh["external_id"]]["properties"]["Status"] = {
+        "select": {"name": "Done"}}
+
     print("\n  zero days means off, not 'file everything today':")
     off = notion.sweep(conn, days=0, now=now)
     check("reported as off", off["off"], True)

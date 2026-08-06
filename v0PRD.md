@@ -756,11 +756,24 @@ Done is not the end of a card's life, it is just the end of its usefulness. A
 Done column that only grows is a Done column nobody scrolls, and after a few
 weeks the board reads as busier than the work actually is.
 
-**D31 — a card that has been Done for three days moves to Archive.** Three days
-rather than one because Done is also how you tell a colleague something landed,
-and rather than a week because by then nobody is looking. `PKM_ARCHIVE_AFTER_DAYS`
-moves it; **0 means off**, not "file it the same day" — a setting that quiets a
-feature must never be the setting that fires it hardest.
+**D31 — a card that has been Done for a set window moves to Archive.** The
+shipped default is three days: rather than one because Done is also how you tell
+a colleague something landed, and rather than a week because by then nobody is
+looking. `PKM_ARCHIVE_AFTER_DAYS` moves it; **0 means off**, not "file it the
+same day" — a setting that quiets a feature must never be the setting that fires
+it hardest.
+
+*This board runs `PKM_ARCHIVE_AFTER_DAYS=1`* (set 2026-08-06), knowingly taking
+the side D31 argues against: a card finished on Tuesday is filed by Wednesday, so
+Done stops being a place a colleague can go and see that something landed. That
+is the trade, and it is reversible by one line in `.env`. What makes it safe to
+take is that the window is **real elapsed time, not calendar days** — `done_at` is
+a full UTC timestamp and the cutoff is `now - timedelta(days=…)`, so a card
+finished at 23:00 is filed at 23:00 the next day, not an hour later at midnight.
+`test_notion.py` pins that boundary at 23h and 25h; keep it if the clock is ever
+refactored, because rounding to dates is the obvious "simplification" and it
+would make a one-day window fire almost immediately for anything finished in the
+evening.
 
 **D32 — Archive is a Status option, not a fourth local status.** `commitments.status`
 carries a `CHECK IN ('todo','doing','done')` and widening a SQLite CHECK means
