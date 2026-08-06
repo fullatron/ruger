@@ -69,7 +69,15 @@ answer twice.
 |---|---|---|
 | `google/gemma-4-31B-it` | ~12s | Both tasks, right owners, a distinct verbatim quote each, same answer every run. **Kept.** |
 | `MiniMaxAI/MiniMax-M2.7` | 32–73s | Found the tasks once in three runs. Reasons for 700–1300 tokens first, ignores "cut the framing", answers `owner: "you"` every time. |
-| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 60–122s | Empty on some runs; when it answers, both tasks share one quote. Too slow for a 5-minute tick. |
+| `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-BF16` | 60–159s | Best task lines of the three, and unusable anyway: empty on one run in four, and in **every** run that answered, both tasks carried the *same* quote — twice a generic summary line evidencing neither. Too slow for a 5-minute tick. |
+
+Nemotron is the case worth remembering, because the task lines it wrote were the
+best of the three and it still loses. **A shared quote is not evidence.** D5 says
+the verbatim quote on the card is what makes a wrong extraction obvious in half a
+second, and one line pasted under two different tasks cannot do that job for
+either of them — the quote check still passes, because the line really was said,
+so nothing downstream catches it. Judge a model on the quote it picks, not only
+on the sentence it writes.
 
 Bigger and slower lost to a 31B here, and both failures were mechanical rather
 than about reasoning. Each cost a real fix, both of which help any model:
