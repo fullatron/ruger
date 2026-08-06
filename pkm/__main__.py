@@ -189,6 +189,16 @@ def notion_setup(parent: str = "", database: str = "", title: str = "") -> int:
             return 1
         print(f"adopted database {target}")
         print("added properties: " + (", ".join(added) if added else "none, it already fits"))
+        # An adopted board rarely has anywhere to file finished work (§18), and
+        # the sweep refuses to run until it does. Better here than at 3am.
+        try:
+            got = notion.ensure_archive_option(target)
+            print(f"archive column: “{got['option']}”"
+                  + (" (added)" if got["created"] else ""))
+            if got["note"]:
+                print(f"  ! {got['note']}")
+        except notion.NotionError as exc:
+            print(f"  ! no archive column: {exc}")
     else:
         parent_id = config.notion_id(parent) or config.NOTION_PARENT
         if not parent_id:
@@ -262,8 +272,37 @@ def report_pull(stats: dict, dry_run: bool) -> None:
     else:
         for gone in stats["missing"]:
             print(f"  ! page deleted in Notion, kept here: {_w(gone['task'], 60)}")
+    if stats.get("filed"):
+        print(f"  {stats['filed']} card(s) you filed in Notion by hand, noted here")
+    if stats.get("unfiled"):
+        print(f"  {stats['unfiled']} card(s) came back out of the archive")
     for note in stats.get("kept") or []:
         print(f"  ! {note}")
+
+
+def report_archive(stats: dict, dry_run: bool) -> None:
+    if stats.get("off"):
+        print(stats["note"])
+        return
+    if not stats["candidates"]:
+        print(f"nothing has been done for more than {stats['days']} day(s). "
+              f"Nothing to file.")
+        return
+    if not stats["ready"]:
+        print(f"! {stats['note']}")
+        return
+
+    for item in stats["moved"]:
+        print(f"  → {stats['option'] or 'Archive':<8} {_w(item['task'], 56):<56} "
+              f"done {(item['done_at'] or '')[:10]}")
+    if dry_run:
+        print(f"\n{stats['candidates']} card(s) would move to "
+              f"“{stats['option']}”. Nothing was sent.")
+        return
+    print(f"\n{stats['archived']} card(s) filed under “{stats['option']}”"
+          + (f", {stats['failed']} failed" if stats["failed"] else ""))
+    for err in stats["errors"]:
+        print(f"  ! {err}")
 
 
 def doctor() -> None:
@@ -375,6 +414,16 @@ def main(argv: list[str] | None = None) -> int:
     p_pull.add_argument("--keep-missing", action="store_true",
                         help="keep rows whose Notion card you deleted "
                              "(normally they go too)")
+
+    p_archive = sub.add_parser(
+        "archive", help="file cards that have been Done for a few days")
+    p_archive.add_argument("--days", type=int, default=None,
+                           help=f"how long Done is long enough "
+                                f"(default {config.ARCHIVE_AFTER_DAYS})")
+    p_archive.add_argument("--dry-run", action="store_true",
+                           help="print, move nothing")
+    p_archive.add_argument("--setup", action="store_true",
+                           help="add the Archive option to the Notion Status column")
 
     sub.add_parser("unlink", help="forget every Notion page id (next push recreates)")
 
@@ -488,6 +537,30 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             report_pull(stats, args.dry_run)
         return 0
+
+    if cmd == "archive":
+        from .connectors import notion
+
+        days = config.ARCHIVE_AFTER_DAYS if args.days is None else args.days
+        try:
+            if args.setup:
+                got = notion.ensure_archive_option()
+                print(f"{'added' if got['created'] else 'already there'}: "
+                      f"“{got['option']}” on the {got['property']} column")
+                if got["note"]:
+                    print(f"  ! {got['note']}")
+        except notion.NotionError as exc:
+            print(f"! {exc}")
+            return 1
+
+        with closing(db.connect()) as conn:
+            try:
+                stats = notion.sweep(conn, days=days, dry_run=args.dry_run)
+            except notion.NotionError as exc:
+                print(f"! {exc}")
+                return 1
+            report_archive(stats, args.dry_run)
+        return 1 if stats["failed"] or not stats["ready"] else 0
 
     if cmd == "unlink":
         with closing(db.connect()) as conn:

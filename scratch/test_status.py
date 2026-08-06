@@ -115,6 +115,63 @@ def main() -> None:
         # task is not overdue, it is finished.
         check("overdue excludes done and future dates", b["overdue"], 1)
 
+        print("\ndone carries a clock, so the archive knows how old it is (§18):")
+        cid = add(conn, "Renew the Northwind licence", "mine", "me")
+        check("an open row has none", db.get_commitment(conn, cid)["done_at"], None)
+
+        with db.transaction(conn):
+            db.set_status(conn, cid, "done")
+        first = db.get_commitment(conn, cid)["done_at"]
+        check("finishing it starts the clock", bool(first), True)
+
+        with db.transaction(conn):
+            db.set_status(conn, cid, "done")
+        check("saying so again does not restart it",
+              db.get_commitment(conn, cid)["done_at"], first)
+
+        with db.transaction(conn):
+            db.mark_archived(conn, cid)
+            db.set_status(conn, cid, "doing")
+        reopened = db.get_commitment(conn, cid)
+        check("reopening clears the clock", reopened["done_at"], None)
+        check("and the archive stamp with it", reopened["archived_at"], None)
+
+        print("\n  and a row finished before the column existed still ages:")
+        # Without the backfill every card done before the upgrade would sit in
+        # Done forever, never old enough to archive: the feature would look
+        # broken on exactly the board that needed it.
+        with db.transaction(conn):
+            conn.execute(
+                "UPDATE commitments SET status='done', done_at=NULL, updated_at=? "
+                "WHERE id = ?", ("2026-01-01T00:00:00+00:00", cid))
+        db._backfill_done_at(conn)
+        check("backfilled from updated_at", db.get_commitment(conn, cid)["done_at"],
+              "2026-01-01T00:00:00+00:00")
+
+        cutoff = "2026-06-01T00:00:00+00:00"
+        # Archiving means moving a card, so a row that never reached Notion is
+        # not a candidate however old it is.
+        check("but not while it has no card to move",
+              db.commitments_to_archive(conn, before=cutoff), [])
+        with db.transaction(conn):
+            db.mark_pushed(conn, cid, "page-x", "https://notion.so/x")
+            conn.execute("UPDATE commitments SET done_at = ? WHERE id = ?",
+                         ("2026-01-01T00:00:00+00:00", cid))
+        check("once pushed, the sweep can see it",
+              [int(r["id"]) for r in db.commitments_to_archive(conn, before=cutoff)],
+              [cid])
+        check("and not one finished yesterday",
+              db.commitments_to_archive(conn, before="2025-01-01T00:00:00+00:00"), [])
+
+        with db.transaction(conn):
+            db.mark_archived(conn, cid)
+        check("and a filed row is not offered twice",
+              db.commitments_to_archive(conn, before=cutoff), [])
+        check("the counts carry it", db.board_summary(conn)["archived"], 1)
+
+        with db.transaction(conn):
+            conn.execute("DELETE FROM commitments WHERE id = ?", (cid,))
+
         print("\nthe timer's liveness comes from the log's mtime:")
         check("no log at all means it has never run", status.tick()["ran"], False)
         check("and that counts as stale", status.tick()["stale"], True)

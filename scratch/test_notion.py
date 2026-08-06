@@ -76,6 +76,10 @@ def reset_state():
         "next": 0,
         "fail_next": None,  # (status_code, body) served once, then cleared
         "title_prop": "Task",
+        # Databases that answer 200 to a PATCH and change nothing. Notion really
+        # does this: a `status` property applies an options change and silently
+        # ignores a groups change, so "it returned 200" is not evidence.
+        "read_only": set(),
     })
     STATE["databases"][DB_ID]["properties"]["Task"] = {"title": {}}
 
@@ -244,7 +248,15 @@ class Fake(BaseHTTPRequestHandler):
             if not database:
                 return self._error(404, "Could not find database.")
             STATE["patches"].append({"database": dbid, "body": body})
-            database["properties"].update(body.get("properties") or {})
+            if dbid not in STATE["read_only"]:
+                for name, spec in (body.get("properties") or {}).items():
+                    kind = next(iter(spec), "")
+                    if kind in ("status", "select") and name in database["properties"]:
+                        # Merge, so a partial payload models Notion's own
+                        # behaviour rather than replacing the whole property.
+                        database["properties"][name][kind].update(spec[kind])
+                    else:
+                        database["properties"][name] = spec
             return self._send(200, {"object": "database", "id": dbid})
 
         return self._error(404, "no such route")
@@ -596,6 +608,218 @@ def test_edge_cases(conn):
     check("and nothing was updated", stats["updated"], 0)
 
 
+def test_archive(conn):
+    """§18 — Done for three days, then filed away.
+
+    The two cases worth the most here: `ensure_archive_option` must not drop the
+    options it is adding to (a select replaces the list it is sent, so a lost
+    option takes every card sitting in it), and the sweep must never fight the
+    human — a card dragged back out of Archive gets its three days over again
+    rather than being re-filed on the next tick.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    print("\nan archive column is found by name, in this database's own spelling:")
+    check("ours", notion.archive_option({"status_options": ["To do", "Archive"]}),
+          "Archive")
+    check("a synonym", notion.archive_option({"status_options": ["Done", "Archived"]}),
+          "Archived")
+    check("none at all", notion.archive_option({"status_options": ["To do", "Done"]}), "")
+
+    print("\n  archived is still done, so it reads back rather than counting as junk:")
+    filed = {"properties": {"Status": {"select": {"name": "Archive"}}}}
+    check("reads as done", notion.read_status(filed), "done")
+    check("and is known to be filed", notion.is_archived(filed), True)
+    check("a plain done page is not", notion.is_archived(
+        {"properties": {"Status": {"select": {"name": "Done"}}}}), False)
+
+    print("\n  and a finished card never opens straight into it:")
+    only_archive = {"status_prop": "Status", "status_type": "status",
+                    "status_options": ["Not started", "Archive"]}
+    check("done finds no home rather than the archive",
+          notion.status_payload("done", only_archive), None)
+
+    print("\nensure_archive_option adds the option and keeps the ones it had:")
+    theirs = new_id()
+    STATE["databases"][theirs] = {"id": theirs, "properties": {
+        "Name": {"title": {}},
+        "Status": {"status": {"options": [
+            {"id": "o1", "name": "Not started", "color": "gray"},
+            {"id": "o2", "name": "In progress", "color": "blue"},
+            {"id": "o3", "name": "Done", "color": "green"}]}},
+    }}
+    got = notion.ensure_archive_option(theirs)
+    check("it says it created one", got["created"], True)
+    check("named the way we spell it", got["option"], notion.ARCHIVE_OPTION)
+    names = [o["name"] for o in
+             STATE["databases"][theirs]["properties"]["Status"]["status"]["options"]]
+    # The bug this pins: sending a partial option list to a select deletes the
+    # rest, and every card sitting in a deleted option loses its status.
+    check("nothing was dropped on the way", names,
+          ["Not started", "In progress", "Done", "Archive"])
+    check("ids were preserved, so no option was recreated",
+          [o.get("id") for o in
+           STATE["databases"][theirs]["properties"]["Status"]["status"]["options"]][:3],
+          ["o1", "o2", "o3"])
+
+    again = notion.ensure_archive_option(theirs)
+    check("a second call adds nothing", again["created"], False)
+    check("and still reports the option", again["option"], notion.ARCHIVE_OPTION)
+
+    print("\n  Notion accepting the change is not evidence it applied it:")
+    # Measured against a real workspace: a `status` property accepts an options
+    # PATCH and applies it, and accepts a `groups` PATCH and silently ignores it.
+    # Anything that answers 200 and changes nothing must raise, not report success.
+    deaf = new_id()
+    STATE["databases"][deaf] = {"id": deaf, "properties": {
+        "Name": {"title": {}},
+        "Status": {"status": {"options": [{"id": "x", "name": "Done"}]}}}}
+    STATE["read_only"].add(deaf)
+    try:
+        notion.ensure_archive_option(deaf)
+        check("a silent no-op raised", False, True)
+    except notion.NotionError as exc:
+        check("a silent no-op raised", "by hand in Notion" in str(exc), True)
+    finally:
+        STATE["read_only"].discard(deaf)
+
+    print("\nthe sweep files what has been done long enough, and nothing else:")
+    with db.transaction(conn):
+        db.clear_push_state(conn)
+    STATE["pages"].clear()
+    notion.push(conn)
+    rows = db.commitments_to_push(conn)
+    old, fresh = rows[0], rows[1]
+    # A third row that is finished but was never pushed. Archiving means moving
+    # a card, and this one has none to move.
+    with db.transaction(conn):
+        never = db.insert_manual_commitment(conn, {
+            "episode_id": int(old["episode_id"]), "event_id": None,
+            "task": "Cancel the old Northwind trial", "task_norm": "cancel old trial",
+            "direction": "mine", "owner": "me", "owner_norm": "me",
+            "due_date": None, "occurred_at": "2026-08-03",
+        })
+    unpushed = db.get_commitment(conn, never)
+
+    # Real `now`, offset backwards. A fixed date in the future would sit ahead of
+    # the stamps `db.now()` writes, and the clock-restart assertion below would
+    # compare the two and read backwards.
+    now = datetime.now(timezone.utc)
+    long_ago = (now - timedelta(days=9)).isoformat(timespec="seconds")
+    yesterday = (now - timedelta(days=1)).isoformat(timespec="seconds")
+    with db.transaction(conn):
+        for row, when in ((old, long_ago), (fresh, yesterday), (unpushed, long_ago)):
+            db.set_status(conn, int(row["id"]), "done")
+            conn.execute("UPDATE commitments SET done_at = ? WHERE id = ?",
+                         (when, int(row["id"])))
+
+    STATE["patches"].clear()
+    stats = notion.sweep(conn, days=3, dry_run=True, now=now)
+    check("one card is old enough", stats["candidates"], 1)
+    check("and it is the old one", stats["moved"][0]["id"], int(old["id"]))
+    check("a dry run sends nothing", STATE["patches"], [])
+
+    stats = notion.sweep(conn, days=3, now=now)
+    check("it was filed", stats["archived"], 1)
+    check("under the option this database offers", stats["option"], "Archive")
+    check("one PATCH, to one page", len(STATE["patches"]), 1)
+    sent = STATE["patches"][0]["body"]["properties"]
+    check("and it carried only Status", list(sent), ["Status"])
+    check("set to Archive", sent["Status"]["select"]["name"], "Archive")
+    check("the page moved", status_of(STATE["pages"][old["external_id"]]), "Archive")
+    check("stamped locally",
+          bool(db.get_commitment(conn, int(old["id"]))["archived_at"]), True)
+    check("the log says so", db.recent_events(conn, 1)[0]["action"], "archived")
+
+    print("\n  yesterday's is left alone, and so is one that was never pushed:")
+    check("still done, not archived",
+          db.get_commitment(conn, int(fresh["id"]))["archived_at"], None)
+    check("no card to move, so no attempt",
+          db.get_commitment(conn, int(unpushed["id"]))["archived_at"], None)
+
+    STATE["patches"].clear()
+    STATE["requests"].clear()
+    stats = notion.sweep(conn, days=3, now=now)
+    check("re-running files nothing twice", stats["archived"], 0)
+    check("and costs no HTTP at all", STATE["requests"], [])
+
+    print("\n  zero days means off, not 'file everything today':")
+    off = notion.sweep(conn, days=0, now=now)
+    check("reported as off", off["off"], True)
+    check("nothing considered", off["candidates"], 0)
+
+    print("\n  a card with no Archive column to move to is refused, not forced:")
+    saved = STATE["databases"][DB_ID]["properties"]["Status"]
+    STATE["databases"][DB_ID]["properties"]["Status"] = {"select": {"options": [
+        {"name": "To do"}, {"name": "In progress"}, {"name": "Done"}]}}
+    with db.transaction(conn):
+        conn.execute("UPDATE commitments SET done_at = ? WHERE id = ?",
+                     (long_ago, int(fresh["id"])))
+    STATE["patches"].clear()
+    try:
+        blocked = notion.sweep(conn, days=3, now=now)
+        check("it says it is not ready", blocked["ready"], False)
+        check("names the fix", "--setup" in blocked["note"], True)
+        check("and moved nothing", STATE["patches"], [])
+    finally:
+        STATE["databases"][DB_ID]["properties"]["Status"] = saved
+
+    print("\npull tracks the archive column by name, because it aliases to done:")
+    page = STATE["pages"][fresh["external_id"]]
+    page["properties"]["Status"] = {"select": {"name": "Archive"}}
+    stats = notion.pull(conn)
+    check("filed by hand, noticed here", stats["filed"], 1)
+    check("without pretending the status moved", stats["changed"], 0)
+    row = db.get_commitment(conn, int(fresh["id"]))
+    check("still done locally", row["status"], "done")
+    check("and now stamped", bool(row["archived_at"]), True)
+
+    print("\n  dragging one back out restarts its three days:")
+    page["properties"]["Status"] = {"select": {"name": "Done"}}
+    stats = notion.pull(conn)
+    check("noticed", stats["unfiled"], 1)
+    row = db.get_commitment(conn, int(fresh["id"]))
+    check("stamp cleared", row["archived_at"], None)
+    # The bug this pins: keep the old done_at and the next tick re-files it, so
+    # the drag undoes itself five minutes later and the board fights you.
+    check("clock restarted", row["done_at"] > long_ago, True)
+    STATE["patches"].clear()
+    check("so the very next sweep leaves it alone",
+          notion.sweep(conn, days=3, now=now)["archived"], 0)
+
+    print("\n  and reopening a filed card clears everything:")
+    page["properties"]["Status"] = {"select": {"name": "Archive"}}
+    notion.pull(conn)
+    check("filed again", bool(db.get_commitment(conn, int(fresh["id"]))["archived_at"]),
+          True)
+    page["properties"]["Status"] = {"select": {"name": "In progress"}}
+    notion.pull(conn)
+    row = db.get_commitment(conn, int(fresh["id"]))
+    check("status came back", row["status"], "doing")
+    check("no longer archived", row["archived_at"], None)
+    check("and not done either", row["done_at"], None)
+
+    print("\n  the counts split archived out:")
+    summary = db.board_summary(conn)
+    check("one filed away", summary["archived"], 1)
+    check("which is still counted as done", summary["done"] >= 1, True)
+
+    # Put the board back the way the tests after this one expect to find it:
+    # every row open and pushed, no archive stamps, and the scratch row gone.
+    # The count matters — `pull`'s FORGET_LIMIT guard is a fraction of the board,
+    # so an extra row left behind here changes what a later test measures.
+    with db.transaction(conn):
+        db.delete_commitment(conn, never)
+        for row in db.commitments_to_push(conn):
+            db.set_status(conn, int(row["id"]), "todo")
+        db.clear_push_state(conn)
+    STATE["pages"].clear()
+    notion.push(conn)
+    check("board restored for the tests that follow",
+          all(r["external_id"] and not r["archived_at"]
+              for r in db.commitments_to_push(conn)), True)
+
+
 def test_transport(conn):
     print("\ntransport — the failures worth retrying:")
     STATE["fail_next"] = (429, {"Retry-After": "0"})
@@ -793,6 +1017,7 @@ def main() -> None:
             test_property_mapping()
             test_status_reading()
             test_push_and_pull(conn)
+            test_archive(conn)
             test_edge_cases(conn)
             test_transport(conn)
             test_schema_and_pagination(conn)

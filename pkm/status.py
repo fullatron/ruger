@@ -143,7 +143,9 @@ def _headline(snap: dict) -> str:
 def human(snap: dict) -> str:
     b, lines = snap["board"], []
     lines.append(f"board      {plural(b['total'], 'commitment')} "
-                 f"({b['todo']} to do, {b['doing']} doing, {b['done']} done)")
+                 f"({b['todo']} to do, {b['doing']} doing, {b['done']} done"
+                 + (f", {b['archived']} archived" if b.get("archived") else "")
+                 + ")")
     lines.append(f"           {b['mine']} mine, {b['theirs']} theirs"
                  + (f", {b['overdue']} overdue" if b["overdue"] else ""))
     lines.append(f"notes      {b['notes']}"

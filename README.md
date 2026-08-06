@@ -143,6 +143,7 @@ it un-mutes it.
 | `pkm wispr` | import Wispr Flow meetings into the inbox |
 | `pkm push [--dry-run] [--resend]` | create the missing Notion pages |
 | `pkm pull [--prune]` | bring status changes back |
+| `pkm archive [--setup] [--days N] [--dry-run]` | file cards that have been Done for a few days |
 | `pkm dedupe [--apply]` | find tasks that are the same job worded differently |
 | `pkm drops` | what the quote check rejected, and why |
 | `pkm revalidate [--apply]` | re-check old drops against the current checker |
@@ -170,6 +171,14 @@ is a broken query, not a decision.
 **Status only travels one way,** Notion → Ruger, read back by `pkm pull`. The
 exception is an instruction: "mark it done" or "push it to friday" is explicit
 intent about that one card, so it is sent, content and all.
+
+**Done cards get out of the way after three days.** They move to an `Archive`
+option on the Notion Status column, so Done stays a list of what you just
+finished rather than everything you ever did. Drag one back out and it gets the
+full three days again rather than re-filing itself on the next tick.
+`PKM_ARCHIVE_AFTER_DAYS=0` turns it off. Run `pkm archive --setup` once to add
+the option; Notion decides which group it lands in and will not let the API move
+it, so drag it into **Complete** yourself.
 
 **The same job twice becomes one card.** Two people asking for the same thing
 merges into one task with a `2×` count, keeping both quotes. Similar wording is
@@ -228,7 +237,7 @@ changes are rarely the answer to a bad board.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. **896 assertions**
+No framework — scripts that print PASS/FAIL and exit non-zero. **956 assertions**
 across twelve suites, none of which need an API key or a network.
 
 ```bash

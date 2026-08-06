@@ -60,7 +60,7 @@ stay wrong so the validator can reject it.
 
 ## Tests
 
-No framework — scripts that print PASS/FAIL and exit non-zero. 896 assertions.
+No framework — scripts that print PASS/FAIL and exit non-zero. 956 assertions.
 
 `scratch/stress.py` is the other kind: hostile input, twelve concurrent writers,
 injected failures, and — with `STRESS_LIVE=1` — a real model and a real Notion.
@@ -69,17 +69,18 @@ Notion page it opens so a `finally` can archive them, and verifies the cleanup
 instead of assuming it. It found the two bugs below.
 
 ```bash
-.venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (22)
-.venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (54)
+.venv/bin/python scratch/test_ingest.py             # step 1: idempotent ingest      (24)
+.venv/bin/python scratch/test_extraction.py         # step 2: quote check + dedup     (58)
 .venv/bin/python scratch/test_providers.py          # JSON salvage + shape check      (38)
-.venv/bin/python scratch/test_ui.py                 # ingest, sources, design rules  (63)
-.venv/bin/python scratch/test_tasks.py              # read-only board, merge-refresh  (66)
-.venv/bin/python scratch/test_notion.py             # push/pull vs a fake Notion     (141)
+.venv/bin/python scratch/test_ui.py                 # ingest, sources, design rules   (63)
+.venv/bin/python scratch/test_tasks.py              # read-only board, merge-refresh  (81)
+.venv/bin/python scratch/test_notion.py             # push/pull/archive vs a fake    (190)
 .venv/bin/python scratch/test_wispr.py              # Wispr import, end to end        (84)
 .venv/bin/python scratch/test_capture_handoff.py    # capture layer -> inbox          (26)
-.venv/bin/python scratch/test_status.py             # counts, liveness, contract      (79)
-.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (49)
+.venv/bin/python scratch/test_status.py             # counts, done clock, liveness    (94)
+.venv/bin/python scratch/test_capture.py            # capture -> tasks -> Notion      (50)
 .venv/bin/python scratch/test_instruct.py           # dedup, instructions, subtasks   (73)
+.venv/bin/python scratch/test_languages.py          # fifteen languages, end to end  (149)
 cd scratch && ../.venv/bin/python test_server.py    # the endpoints, and the log      (26)
 .venv/bin/python scratch/test_live.py               # real provider call — COSTS TOKENS
 ```
@@ -117,6 +118,7 @@ pkm/server.py           stdlib http.server; board, notes and settings endpoints
 pkm/board.html          the whole UI. No React, no bundler, no build step
 pkm/status.py           board counts + timer liveness. Three renderings, one snapshot
 pkm/capture.py          a dictated line -> inbox -> tasks -> Notion (§10)
+                        the archive sweep lives in connectors/notion.py (§18)
 menubar/RugerBar.swift  the menu bar app. Shells into pkm; owns no rules
 pkm/prompts/extract_capture.md   captures get their own prompt. D14
 scripts/ruger.5m.sh     SwiftBar plugin. A wrapper, so the logic stays testable
@@ -422,6 +424,9 @@ launchctl print     gui/$(id -u)/ai.ruger.wispr | grep -E "runs|last exit"
   `~/Library/Application Support/Wispr Flow` are both outside the protected set,
   so no Full Disk Access grant is needed anywhere. Verified: the agent reads
   Wispr's database with no permission prompt.
+- **Stage 5 archives, and is ungated like the pull.** What makes a card old
+  enough is the calendar, not whether a meeting happened, so gating it behind
+  "something changed" would mean nothing is ever filed on a quiet week.
 - **The tick skips the PUSH when nothing changed, and always pulls.** They used
   to share a gate, so an idle tick refreshed nothing — stale exactly when you are
   working in Notion and not recording meetings. Pull is a single read-only query;
@@ -629,6 +634,40 @@ of commitments that read as yours.
 - **The note is kept.** Deleting it would take the transcript and the evidence
   with it, and the recording is still worth having.
 
+## The archive (§18)
+
+A card that has been Done for three days moves to an **Archive** option on the
+Notion Status column. `notion.sweep`, `pkm archive`, stage 5 of the tick.
+
+- **Archive is a Status option, not a fourth local status.** `commitments.status`
+  has a `CHECK IN ('todo','doing','done')` and widening a SQLite CHECK means
+  rebuilding the table under a live database. Locally this is two timestamps:
+  `done_at` starts the clock, `archived_at` records the filing.
+- **`STATUS_ALIASES` folds `archive`/`archived`/`filed` back to `done`.** Without
+  it every card this code moved would read back as an unrecognised Status and be
+  counted `unreadable` forever — the feature reporting itself as broken. The
+  consequence is that status alone can no longer tell "done" from "filed", which
+  is why `read_status_name` exists and why `pull` tracks membership by name.
+- **Dragging a card out of Archive restarts its three days.** `db.clear_archived`
+  resets `done_at`. Leave it and the next tick re-files the card, so the drag
+  undoes itself and the board fights the person using it.
+- **The sweep asks SQLite before it asks Notion.** The candidate query returns
+  before any HTTP call, so an idle tick costs one indexed read. Do not hoist
+  `board_profile()` above that check.
+- **`PKM_ARCHIVE_AFTER_DAYS=0` means off, not "file it today".** A setting that
+  quiets a feature must never be the setting that fires it hardest.
+- **Notion accepts an options PATCH on a `status` property and applies it; it
+  accepts a `groups` PATCH and silently ignores it.** Measured 2026-08-06 against
+  a real workspace, against Notion's own documentation, which says neither is
+  possible. So `ensure_archive_option` reads the database back and judges by what
+  came back — and reports the group it could not set instead of claiming it did.
+  The new option lands in whatever group Notion picks (To-do, in practice) and
+  has to be dragged into Complete by hand, once.
+- **Never send a partial options list.** A select *replaces* the list it is
+  given, so an option left out is deleted and every card sitting in it loses its
+  status. `ensure_archive_option` reads the existing options and sends them back
+  with the new one appended.
+
 ## The Notion board
 
 Ruger's job ends at a commitment that survived the quote check. Where you *work*
@@ -643,6 +682,8 @@ truth for content; the Notion database is derived from it and rebuildable.
 .venv/bin/python -m pkm push --dry-run            # what would go out
 .venv/bin/python -m pkm push                      # send it
 .venv/bin/python -m pkm pull                      # bring status changes back
+.venv/bin/python -m pkm archive --setup           # add the Archive option, then sweep
+.venv/bin/python -m pkm archive --dry-run         # what would be filed
 .venv/bin/python -m pkm unlink                    # forget page ids, rebuild next push
 ```
 

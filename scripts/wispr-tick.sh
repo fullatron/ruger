@@ -58,3 +58,9 @@ fi
 #    in Notion and not recording meetings. It is one read-only query.
 #    Still no --prune: an automated sync must not archive anything.
 "$PY" -m pkm pull 2>&1 || printf '! pull exited %s\n' "$?"
+
+# 5. Cards that have sat in Done long enough get filed under Archive (section 18).
+#    Ungated on purpose, like the pull: what makes a card old enough is the
+#    calendar, not whether a meeting happened. It costs one indexed SQLite read
+#    when nothing is due, and reaches Notion only when something is.
+"$PY" -m pkm archive 2>&1 || printf '! archive exited %s\n' "$?"

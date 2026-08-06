@@ -27,6 +27,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+from datetime import datetime, timedelta, timezone
 
 from .. import config, db
 
@@ -56,6 +57,16 @@ STATUS_PROP = "Status"
 
 STATUS_TO_NOTION = {"todo": "To do", "doing": "In progress", "done": "Done"}
 
+# §18. Where a finished card goes once it has stopped being interesting. This is
+# a Status option, not a fourth local status: locally an archived commitment is
+# simply done, with an `archived_at` stamp, which is why the aliases below fold
+# it back to `done` when it is read.
+ARCHIVE_OPTION = "Archive"
+ARCHIVE_NAMES = {"archive", "archived", "filed"}
+
+# How long a card sits in Done before it is filed away.
+ARCHIVE_AFTER_DAYS = 3
+
 # Read back generously: renaming a column in Notion is a normal thing to do, and
 # it must not silently stop status syncing. Anything unrecognised is left alone.
 STATUS_ALIASES = {
@@ -65,6 +76,10 @@ STATUS_ALIASES = {
     "wip": "doing", "started": "doing", "active": "doing",
     "done": "done", "complete": "done", "completed": "done", "shipped": "done",
     "closed": "done",
+    # Archived is still done. Without these three a card this very code moved
+    # into Archive would read back as unrecognised and be counted `unreadable`
+    # forever, which is the feature reporting itself as broken.
+    "archive": "done", "archived": "done", "filed": "done",
 }
 
 # D3's mine/theirs survives the trip as Notion's own chip colours.
@@ -74,6 +89,7 @@ SCHEMA = {
         {"name": "To do", "color": "default"},
         {"name": "In progress", "color": "blue"},
         {"name": "Done", "color": "green"},
+        {"name": ARCHIVE_OPTION, "color": "gray"},
     ]}},
     "Direction": {"select": {"options": [
         {"name": "Mine", "color": "purple"},
@@ -278,12 +294,36 @@ def _prop(page: dict, name: str) -> dict:
     return (page.get("properties") or {}).get(name) or {}
 
 
-def read_status(page: dict) -> str | None:
-    """Which local status a Notion page is sitting in, if we can tell."""
+def read_status_name(page: dict) -> str:
+    """The Status option exactly as Notion spells it, before any aliasing.
+
+    Needed as well as `read_status` because Archive collapses to `done` on the
+    way in (§18) and the two cases have to be told apart: a card sitting in
+    Archive must not be swept again, and a card dragged out of it must start its
+    three days over.
+    """
     prop = _prop(page, STATUS_PROP)
     chosen = prop.get("select") or prop.get("status") or {}
-    name = (chosen or {}).get("name") or ""
-    return STATUS_ALIASES.get(name.strip().lower())
+    return ((chosen or {}).get("name") or "").strip()
+
+
+def read_status(page: dict) -> str | None:
+    """Which local status a Notion page is sitting in, if we can tell."""
+    return STATUS_ALIASES.get(read_status_name(page).lower())
+
+
+def is_archived(page_or_name: dict | str) -> bool:
+    name = (page_or_name if isinstance(page_or_name, str)
+            else read_status_name(page_or_name))
+    return name.strip().lower() in ARCHIVE_NAMES
+
+
+def archive_option(profile: dict) -> str:
+    """This database's own word for the archive column, or '' if it has none."""
+    for option in profile.get("status_options") or []:
+        if option.strip().lower() in ARCHIVE_NAMES:
+            return option
+    return ""
 
 
 def read_ruger_id(page: dict) -> int | None:
@@ -365,6 +405,91 @@ def ensure_schema(database_id: str) -> list[str]:
     return sorted(missing)
 
 
+def _status_spec(database_id: str) -> tuple[str, str, dict]:
+    """The Status column exactly as Notion stores it: name, type, raw spec."""
+    props = (_request("GET", f"/databases/{database_id}").get("properties") or {})
+    chosen: tuple[str, str, dict] | None = None
+    for name, spec in props.items():
+        kind = spec.get("type")
+        if kind not in ("status", "select"):
+            continue
+        if name == STATUS_PROP:
+            chosen = (name, kind, spec.get(kind) or {})
+        elif chosen is None and kind == "status":
+            chosen = (name, kind, spec.get(kind) or {})
+    if not chosen:
+        raise NotionError(
+            "that database has no Status column, so there is nowhere to archive "
+            "to. Add a Status or Select property called Status in Notion."
+        )
+    return chosen
+
+
+def ensure_archive_option(database_id: str | None = None) -> dict:
+    """Make sure the board has somewhere to file finished work (§18).
+
+    Notion's documentation says a `status` property cannot be edited over the
+    API. Measured against a real workspace on 2026-08-06 that is only half true:
+    **adding an option is accepted and applied; moving it between groups is
+    accepted and silently ignored.** So this adds the option and then *reads the
+    database back* to find out what actually happened, rather than believing the
+    200 — the same rule the providers follow for a schema that was requested but
+    perhaps not honoured.
+
+    Returns {'option', 'created', 'group', 'grouped', 'note'}. `grouped` is False
+    when Notion filed the new option under an unfinished group, which is cosmetic
+    but visible: on a grouped board view the archive would sit next to To-do.
+    Nothing here can fix that, so it is reported instead of hidden.
+    """
+    database_id = config.notion_id(database_id) or _database()
+    prop, kind, spec = _status_spec(database_id)
+
+    existing = next((o.get("name", "") for o in spec.get("options") or []
+                     if is_archived(o.get("name", ""))), "")
+    created = False
+    if not existing:
+        # Send the options back before adding to them. A select **replaces** the
+        # list it is given, so an option omitted here is deleted, and every card
+        # sitting in it loses its status. Identify by id where there is one and
+        # by name otherwise; never drop an entry for want of a field.
+        options = [{k: v for k, v in (("id", o.get("id")), ("name", o.get("name")),
+                                      ("color", o.get("color"))) if v}
+                   for o in spec.get("options") or []]
+        _request("PATCH", f"/databases/{database_id}", {"properties": {
+            prop: {kind: {"options": options + [{"name": ARCHIVE_OPTION,
+                                                 "color": "gray"}]}}}})
+        prop, kind, spec = _status_spec(database_id)
+        existing = next((o.get("name", "") for o in spec.get("options") or []
+                         if is_archived(o.get("name", ""))), "")
+        if not existing:
+            raise NotionError(
+                f"Notion accepted the change but the {prop} column still has no "
+                f"{ARCHIVE_OPTION} option. Add one by hand in Notion: open the "
+                f"{prop} property, then Edit property, then + Add option."
+            )
+        created = True
+
+    group, grouped = "", True
+    if kind == "status":
+        by_id = {o.get("id"): o.get("name", "") for o in spec.get("options") or []}
+        for candidate in spec.get("groups") or []:
+            if any(is_archived(by_id.get(oid, ""))
+                   for oid in candidate.get("option_ids") or []):
+                group = candidate.get("name", "")
+                break
+        # Notion decides which group a new option lands in and will not let the
+        # API move it. Anything that is not the completed group reads wrong.
+        grouped = STATUS_ALIASES.get(group.strip().lower()) == "done" if group else True
+
+    note = ""
+    if not grouped:
+        note = (f"Notion put “{existing}” in the “{group}” group. Drag it into "
+                f"“Complete” in the {prop} property to keep the board tidy — the "
+                f"API cannot move it, and nothing else depends on it.")
+    return {"option": existing, "created": created, "group": group,
+            "grouped": grouped, "note": note, "property": prop, "type": kind}
+
+
 def title_property(database_id: str) -> str:
     """Whatever the database calls its title column."""
     return board_profile(database_id)["title"]
@@ -433,8 +558,12 @@ def status_payload(local: str, profile: dict) -> dict | None:
     if pick is None:
         # Read the column's own vocabulary back through the same aliases pull
         # uses, so "Not started" is recognised as todo without configuration.
+        # Archive is excluded: it aliases to `done` on the way in, and without
+        # this guard a database offering only Archive would open every finished
+        # card straight into it, which is a sweep the human never asked for.
         pick = next((o for o in options
-                     if STATUS_ALIASES.get(o.strip().lower()) == local), None)
+                     if STATUS_ALIASES.get(o.strip().lower()) == local
+                     and not is_archived(o)), None)
     if pick is None and not options:
         pick = wanted
     if pick is None:
@@ -590,6 +719,85 @@ def push(conn: sqlite3.Connection, *, dry_run: bool = False,
     return stats
 
 
+# --- the archive (§18) --------------------------------------------------------
+
+
+def sweep(conn: sqlite3.Connection, *, days: int = ARCHIVE_AFTER_DAYS,
+          dry_run: bool = False, limit: int | None = None,
+          now: datetime | None = None) -> dict:
+    """Move cards that have been Done for more than `days` into Archive.
+
+    This is the second deliberate exception to D9's "Notion owns status", after
+    an explicit instruction. It is narrow in the same way: only rows already in
+    done, only after a window long enough that nobody is still looking at them,
+    only ever *into* the archive, and never out. Dragging one back is a decision
+    this respects — `db.clear_archived` restarts its clock so the sweep does not
+    quietly undo the drag five minutes later.
+
+    Cheap when there is nothing to do: the candidate query is one indexed read
+    and it returns before any HTTP call, so an idle tick costs nothing.
+    """
+    stats = {"days": days, "cutoff": "", "candidates": 0, "option": "",
+             "archived": 0, "failed": 0, "ready": True, "off": False, "note": "",
+             "errors": [], "moved": []}
+    if days <= 0:
+        # The kill switch, for anyone who would rather clear their own Done
+        # column. Zero means off rather than "file it the same day": a setting
+        # that quiets a feature must never be the setting that fires it hardest.
+        stats["off"] = True
+        stats["note"] = "archiving is off (PKM_ARCHIVE_AFTER_DAYS=0)"
+        return stats
+
+    stats["cutoff"] = cutoff = (
+        (now or datetime.now(timezone.utc)) - timedelta(days=days)
+    ).isoformat(timespec="seconds")
+    rows = db.commitments_to_archive(conn, before=cutoff, limit=limit)
+    stats["candidates"] = len(rows)
+    if not rows:
+        return stats
+
+    profile = board_profile()
+    option = archive_option(profile)
+    if not option:
+        # Refuse rather than improvise. Writing an option that does not exist is
+        # a 400 per card, and inventing a different column would be a schema
+        # change nobody asked for.
+        stats["ready"] = False
+        stats["note"] = (
+            f"the Status column has no {ARCHIVE_OPTION} option, so there is "
+            f"nowhere to file {len(rows)} finished card(s). Run "
+            f"`python -m pkm archive --setup`."
+        )
+        return stats
+
+    stats["option"] = option
+    prop, kind = profile["status_prop"], profile["status_type"]
+
+    for row in rows:
+        since = (row["done_at"] or "")[:10]
+        stats["moved"].append({"id": int(row["id"]), "task": row["task"],
+                               "done_at": row["done_at"], "url": row["external_url"]})
+        if dry_run:
+            continue
+        try:
+            _request("PATCH", f"/pages/{row['external_id']}",
+                     {"properties": {prop: {kind: {"name": option}}}})
+            with db.transaction(conn):
+                db.mark_archived(conn, int(row["id"]))
+                db.log_event(conn, "archived", row["task"],
+                             commitment_id=int(row["id"]),
+                             detail=f"done since {since}, moved to {option}",
+                             external_url=row["external_url"])
+            stats["archived"] += 1
+        except NotionError as exc:
+            # One card Notion will not take must not strand the rest.
+            stats["failed"] += 1
+            stats["errors"].append(f"{row['task'][:60]}: {exc}")
+        time.sleep(GAP)
+
+    return stats
+
+
 # --- pull --------------------------------------------------------------------
 
 
@@ -637,7 +845,7 @@ def pull(conn: sqlite3.Connection, *, dry_run: bool = False,
 
     stats = {"pages": len(pages), "changed": 0, "unchanged": 0, "orphaned": 0,
              "archived": 0, "unlinked": 0, "unreadable": 0, "moves": [],
-             "orphans": [], "forgotten": 0, "kept": []}
+             "orphans": [], "forgotten": 0, "kept": [], "filed": 0, "unfiled": 0}
 
     seen: set[int] = set()
     for page in pages:
@@ -664,20 +872,37 @@ def pull(conn: sqlite3.Connection, *, dry_run: bool = False,
         if status is None:
             stats["unreadable"] += 1
             continue
+
         if status == row["status"]:
             stats["unchanged"] += 1
-            continue
+        else:
+            stats["changed"] += 1
+            stats["moves"].append({"id": cid, "task": row["task"],
+                                   "from": row["status"], "to": status})
+            if not dry_run:
+                with db.transaction(conn):
+                    # Reopening a card clears its archive stamp here.
+                    db.set_status(conn, cid, status)
+                    # The log's whole job: what came back, and when.
+                    db.log_event(conn, "status", row["task"], commitment_id=cid,
+                                 detail=f"{row['status']} → {status} in Notion",
+                                 external_url=row["external_url"])
 
-        stats["changed"] += 1
-        stats["moves"].append({"id": cid, "task": row["task"],
-                               "from": row["status"], "to": status})
-        if not dry_run:
-            with db.transaction(conn):
-                db.set_status(conn, cid, status)
-                # The log's whole job: what came back, and when.
-                db.log_event(conn, "status", row["task"], commitment_id=cid,
-                             detail=f"{row['status']} → {status} in Notion",
-                             external_url=row["external_url"])
+        # Archive membership is tracked by the option's *name*, because it
+        # aliases to `done` on the way in and the status alone cannot tell the
+        # two apart (§18). Someone who files a card by hand should not have it
+        # swept a second time, and someone who drags one back out should get the
+        # full window again rather than watching it re-file itself.
+        if not dry_run and status == "done":
+            filed, was = is_archived(page), bool(row["archived_at"])
+            if filed and not was:
+                with db.transaction(conn):
+                    db.mark_archived(conn, cid)
+                stats["filed"] += 1
+            elif was and not filed:
+                with db.transaction(conn):
+                    db.clear_archived(conn, cid)
+                stats["unfiled"] += 1
 
     # A row whose page vanished from the database: you deleted the card.
     missing = [(cid, row) for cid, row in local.items()

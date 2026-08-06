@@ -109,7 +109,7 @@ def reload() -> None:
     """Recompute every setting from the environment and the .env file."""
     global _FILE_ENV, INBOX, DB_PATH, TRASH, ME_ALIASES
     global PROVIDER, BASE_URL, MODEL, API_KEY, CONTEXT_LENGTH
-    global DEDUP_THRESHOLD, SERVER_HOST, SERVER_PORT
+    global DEDUP_THRESHOLD, SERVER_HOST, SERVER_PORT, ARCHIVE_AFTER_DAYS
     global NOTION_TOKEN, NOTION_DB, NOTION_PARENT
 
     _FILE_ENV = _load_env_file(ENV_FILE)
@@ -153,6 +153,14 @@ def reload() -> None:
     DEDUP_THRESHOLD = float(env("PKM_DEDUP_THRESHOLD", "0.6"))
     SERVER_HOST = env("PKM_HOST", "127.0.0.1")
     SERVER_PORT = int(env("PKM_PORT", "8765"))
+
+    # §18: how long a card sits in Done before it is filed under Archive. Zero
+    # switches the sweep off, which is the setting for anyone who would rather
+    # clear their own Done column.
+    try:
+        ARCHIVE_AFTER_DAYS = max(0, int(env("PKM_ARCHIVE_AFTER_DAYS", "3")))
+    except ValueError:
+        ARCHIVE_AFTER_DAYS = 3
 
     # The board the commitments get pushed to. Separate credential from the
     # extraction key: one reads meetings, the other writes your task list, and

@@ -750,6 +750,52 @@ and worth solving once for both.
 
 ---
 
+## 18. The archive
+
+Done is not the end of a card's life, it is just the end of its usefulness. A
+Done column that only grows is a Done column nobody scrolls, and after a few
+weeks the board reads as busier than the work actually is.
+
+**D31 — a card that has been Done for three days moves to Archive.** Three days
+rather than one because Done is also how you tell a colleague something landed,
+and rather than a week because by then nobody is looking. `PKM_ARCHIVE_AFTER_DAYS`
+moves it; **0 means off**, not "file it the same day" — a setting that quiets a
+feature must never be the setting that fires it hardest.
+
+**D32 — Archive is a Status option, not a fourth local status.** `commitments.status`
+carries a `CHECK IN ('todo','doing','done')` and widening a SQLite CHECK means
+rebuilding the table under a live database. It is not worth it, and it would be
+wrong anyway: an archived commitment *is* done. So locally this is two
+timestamps — `done_at`, which starts the clock, and `archived_at`, which records
+that the card was filed — and `STATUS_ALIASES` folds Archive back to `done` on
+the way in. Without that last part every card this feature moved would read back
+as a Status Ruger does not recognise, and the feature would report itself broken.
+
+**D33 — the sweep only ever files, never unfiles, and never argues.** It is the
+second deliberate exception to D9's "Notion owns status", after an explicit
+instruction (D19), and it is narrow in the same way: only rows already in done,
+only ones old enough, only ever *into* the archive. Dragging a card back out is a
+decision, so `pull` notices and restarts its three days. Without that the sweep
+would re-file the card on the next tick and the drag would silently undo itself —
+the board fighting the person using it, which is the failure mode
+`sync.reextract_episode` and D21 both exist to prevent.
+
+**D34 — read the database back; a 200 is not evidence.** Measured against a real
+workspace on 2026-08-06: Notion's own documentation says a `status` property
+cannot be edited over the API, and that is half right. **Adding an option is
+accepted and applied. Moving it between groups is accepted and silently
+ignored** — the same accepted-but-unenforced shape as a `json_schema` a
+Featherless endpoint agrees to and disregards. So `ensure_archive_option` adds
+the option, reads the database back to see what actually happened, and reports
+the group it could not set rather than pretending it did. The group is cosmetic;
+claiming success would not be.
+
+*Not in scope:* deleting archived cards, an archive on the local board, or an
+"unarchive" command. Notion owns the card (D21), and it already has a way to drag
+one back.
+
+---
+
 ## Build order
 
 | | | |
@@ -768,7 +814,8 @@ and worth solving once for both.
 | **Step 12** | Breaking a task into steps automatically (§13) | not started |
 | **Step 13** | Languages that are not English (§16) | **done** |
 | **Step 14** | Clearing a note's tasks in one action (§17) | **done** |
-| **Step 15** | Slack — under discussion | not started |
+| **Step 15** | The archive (§18) | **done** |
+| **Step 16** | Slack — under discussion | not started |
 
 Step 4 was always conditional on step 2 proving worth it. It has, so this is the
 next real piece of work — though `sync --push` plus paste-into-the-UI has made

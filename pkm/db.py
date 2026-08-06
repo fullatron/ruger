@@ -51,6 +51,11 @@ _ADDED_COLUMNS = {
         ("external_id", "TEXT"),
         ("external_url", "TEXT"),
         ("pushed_at", "TEXT"),
+        # §18. `status` alone cannot answer "done for how long", and its CHECK
+        # cannot be widened without rebuilding the table under a live database —
+        # so archiving is two timestamps rather than a fourth status value.
+        ("done_at", "TEXT"),      # when it last entered done. NULL = not done
+        ("archived_at", "TEXT"),  # when it was filed away in Notion
     ],
     "episodes": [
         # §17: a note whose tasks were never yours. Muting it stops re-extraction
@@ -68,6 +73,25 @@ def migrate(conn: sqlite3.Connection) -> None:
             if name not in have:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {spec}")
     _backfill_log(conn)
+    _backfill_done_at(conn)
+
+
+def _backfill_done_at(conn: sqlite3.Connection) -> None:
+    """Give already-done rows a clock to age against (§18).
+
+    Nothing recorded when a commitment became done until this column existed, so
+    without a backfill every card finished before the upgrade would sit in Done
+    forever, never old enough to archive — the feature would look broken on
+    exactly the board that needs it most.
+
+    `updated_at` is the honest approximation: for a done row the last write was
+    almost always the status change that finished it. Self-healing rather than
+    run-once, because a row can also be inserted straight into done.
+    """
+    conn.execute(
+        """UPDATE commitments SET done_at = updated_at
+            WHERE status = 'done' AND done_at IS NULL"""
+    )
 
 
 def _backfill_log(conn: sqlite3.Connection) -> None:
@@ -466,13 +490,80 @@ def insert_manual_commitment(conn: sqlite3.Connection, c: dict) -> int:
 
 
 def set_status(conn: sqlite3.Connection, commitment_id: int, status: str) -> bool:
+    """Move a commitment's status, and keep the archive clock honest.
+
+    `done_at` starts when it enters done and is cleared when it leaves, so a card
+    dragged out of Done and finished again waits the full window before it is
+    archived rather than being filed the moment it lands. `COALESCE` means a
+    done → done write does not restart that clock.
+    """
     if status not in ("todo", "doing", "done"):
         raise ValueError(f"bad status: {status!r}")
-    cur = conn.execute(
-        "UPDATE commitments SET status = ?, updated_at = ? WHERE id = ?",
-        (status, now(), commitment_id),
-    )
+    ts = now()
+    if status == "done":
+        cur = conn.execute(
+            """UPDATE commitments
+                  SET status = 'done', updated_at = ?, done_at = COALESCE(done_at, ?)
+                WHERE id = ?""",
+            (ts, ts, commitment_id),
+        )
+    else:
+        # Reopened. It is no longer done and no longer filed away, whatever
+        # Notion's Archive column said a moment ago.
+        cur = conn.execute(
+            """UPDATE commitments
+                  SET status = ?, updated_at = ?, done_at = NULL, archived_at = NULL
+                WHERE id = ?""",
+            (status, ts, commitment_id),
+        )
     return cur.rowcount > 0
+
+
+# --- the archive (§18) --------------------------------------------------------
+
+
+def commitments_to_archive(conn: sqlite3.Connection, *, before: str,
+                           limit: int | None = None) -> list[sqlite3.Row]:
+    """Done since before `before`, still sitting on the Notion board.
+
+    `external_id IS NOT NULL` because archiving means moving a card, and a row
+    that was never pushed has no card to move. It will be created in whatever
+    status it holds and archived on a later sweep.
+    """
+    rows = conn.execute(
+        """SELECT c.*, e.title AS meeting, e.started_at AS meeting_date
+             FROM commitments c
+             JOIN episodes e ON e.id = c.episode_id
+            WHERE c.status = 'done'
+              AND c.archived_at IS NULL
+              AND c.external_id IS NOT NULL
+              AND c.done_at IS NOT NULL
+              AND c.done_at <= ?
+         ORDER BY c.done_at, c.id""",
+        (before,),
+    ).fetchall()
+    return rows[:limit] if limit else rows
+
+
+def mark_archived(conn: sqlite3.Connection, commitment_id: int,
+                  at: str | None = None) -> None:
+    conn.execute("UPDATE commitments SET archived_at = ? WHERE id = ?",
+                 (at or now(), commitment_id))
+
+
+def clear_archived(conn: sqlite3.Connection, commitment_id: int) -> None:
+    """You dragged it back out of Archive. Restart the clock.
+
+    The clock restart is the load-bearing half. Leaving `done_at` where it was
+    would make the next sweep — five minutes later — file the card straight back
+    into Archive, so the drag would silently undo itself and the board would
+    fight the person using it.
+    """
+    conn.execute(
+        """UPDATE commitments SET archived_at = NULL, done_at = ?
+            WHERE id = ? AND archived_at IS NOT NULL""",
+        (now(), commitment_id),
+    )
 
 
 # --- the external board (Notion) --------------------------------------------
@@ -586,7 +677,7 @@ SELECT c.id,
 # no task used to leave no trace anywhere, which is indistinguishable from the
 # feature being broken.
 ACTIONS = ("created", "resent", "status", "deleted", "merged",
-           "captured", "instructed", "subtask")
+           "captured", "instructed", "subtask", "archived")
 
 
 def log_event(conn: sqlite3.Connection, action: str, task: str, *,
@@ -736,6 +827,7 @@ def board_summary(conn: sqlite3.Connection, today: str | None = None) -> dict:
                   SUM(direction = 'mine')     AS mine,
                   SUM(direction = 'theirs')   AS theirs,
                   SUM(external_id IS NOT NULL) AS pushed,
+                  SUM(archived_at IS NOT NULL) AS archived,
                   SUM(due_date IS NOT NULL AND due_date < ?
                       AND status <> 'done')   AS overdue
              FROM commitments""",
@@ -747,7 +839,8 @@ def board_summary(conn: sqlite3.Connection, today: str | None = None) -> dict:
     ).fetchone()
 
     out = {key: int(row[key] or 0) for key in
-           ("total", "todo", "doing", "done", "mine", "theirs", "pushed", "overdue")}
+           ("total", "todo", "doing", "done", "mine", "theirs", "pushed",
+            "archived", "overdue")}
     out["notes"] = int(episodes_row["notes"] or 0)
     out["last_extracted"] = episodes_row["last_extracted"]
     return out
